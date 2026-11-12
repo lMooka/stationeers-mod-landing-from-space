@@ -37,8 +37,8 @@ namespace LandingFromSpace
         private static float _height;
         private static float _nextHeight;
 
-        private static GUIStyle _style;
-        private static Texture2D _dim;
+        /// <summary>Queda rapida pedida agora (para a faixa mostrar).</summary>
+        private static bool _fastShown;
 
         public static bool Active => _capsule != null;
         public static long CapsuleId => _capsuleId;
@@ -211,6 +211,7 @@ namespace LandingFromSpace
                 fast = SimulatedFast;
             }
 
+            _fastShown = fast;
             if (_local)
             {
                 ServerPilot.SetInput(_capsuleId, NetworkManager.LocalClientId, dir, fast);
@@ -249,22 +250,50 @@ namespace LandingFromSpace
             {
                 return;
             }
-            if (_style == null)
-            {
-                _style = new GUIStyle(GUI.skin.label) { fontSize = 17, alignment = TextAnchor.MiddleCenter, wordWrap = true };
-                _style.normal.textColor = Color.white;
-                _dim = new Texture2D(1, 1);
-                _dim.SetPixel(0, 0, new Color(0f, 0f, 0f, 0.6f));
-                _dim.Apply();
-            }
             Vector3 p = _capsule.Transform.position;
-            float height = _height;
-            string text = $"Guided descent  ·  WASD: steer  ·  Shift: fall faster  ·  Mouse: look\n" +
-                          $"Height {Mathf.Max(0f, height):0} m  ·  ({p.x:0}, {p.z:0})";
-            float width = Mathf.Min(720f, Screen.width - 32f);
-            Rect box = new Rect((Screen.width - width) / 2f, 24f, width, 64f);
-            GUI.DrawTexture(box, _dim);
-            GUI.Label(box, text, _style);
+            float height = Mathf.Max(0f, _height);
+            const float pad = 14f;
+            float width = Mathf.Min(560f, Screen.width - 32f);
+            Rect box = new Rect((Screen.width - width) / 2f, 20f, width, 112f);
+            UiStyle.PanelBox(box);
+
+            // Titulo e posicao.
+            GUI.Label(new Rect(box.x + pad, box.y + 8f, 300f, 20f), "GUIDED DESCENT", UiStyle.Label(13, UiStyle.Accent, title: true));
+            GUI.Label(new Rect(box.x, box.y + 8f, box.width - pad, 20f), $"X {p.x:0}   Z {p.z:0}", UiStyle.Label(12, UiStyle.Muted, TextAnchor.MiddleRight));
+
+            // Altitude grande e barra da descida ate o pouso final.
+            GUI.Label(new Rect(box.x + pad, box.y + 30f, 80f, 14f), "ALTITUDE", UiStyle.Label(10, UiStyle.Muted));
+            GUI.Label(new Rect(box.x + pad, box.y + 42f, 140f, 30f), $"{height:0} m", UiStyle.Label(26, UiStyle.Text));
+            float top = ServerPilot.StartHeight;
+            float bottom = Plugin.HoverHeight.Value;
+            float progress = Mathf.Clamp01((top - height) / Mathf.Max(1f, top - bottom));
+            Rect bar = new Rect(box.x + 160f, box.y + 56f, box.width - 160f - pad, 4f);
+            UiStyle.Fill(bar, new Color(1f, 1f, 1f, 0.08f));
+            UiStyle.Fill(new Rect(bar.x, bar.y, bar.width * progress, bar.height), UiStyle.Accent);
+            GUI.Label(new Rect(bar.x, bar.y - 18f, bar.width, 14f), _fastShown ? "FALLING FAST" : "DESCENT", UiStyle.Label(10, _fastShown ? UiStyle.Accent : UiStyle.Muted));
+            GUI.Label(new Rect(bar.x, bar.y - 18f, bar.width, 14f), $"FINAL APPROACH {bottom:0} m", UiStyle.Label(10, UiStyle.Muted, TextAnchor.MiddleRight));
+
+            // Teclas.
+            UiStyle.Fill(new Rect(box.x, box.y + 78f, box.width, 1f), UiStyle.Line);
+            float y = box.y + 84f;
+            float x = box.x + pad;
+            foreach (string key in new[] { "W", "A", "S", "D" })
+            {
+                x += UiStyle.KeyChip(x, y, key) + 3f;
+            }
+            x = KeyLabel(x + 5f, y, "Steer");
+            x += UiStyle.KeyChip(x, y, "SHIFT") + 6f;
+            x = KeyLabel(x, y, "Fall faster");
+            x += UiStyle.KeyChip(x, y, "MOUSE") + 6f;
+            KeyLabel(x, y, "Look");
+        }
+
+        private static float KeyLabel(float x, float y, string text)
+        {
+            GUIStyle style = UiStyle.Label(13, UiStyle.Text);
+            float width = style.CalcSize(new GUIContent(text)).x;
+            GUI.Label(new Rect(x, y, width, 22f), text, style);
+            return x + width + 18f;
         }
     }
 }

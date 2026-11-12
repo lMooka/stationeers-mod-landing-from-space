@@ -8,6 +8,7 @@
         [h2]Choose the spot[/h2]
         When your capsule spawns, the world map opens: click where you want to land and press [b]Land here[/b] (or Enter).
         [b]Default spot[/b] lands the normal way. Works on every spawn, including respawns.
+        On worlds with lava (Vulcan), lava is marked in red on the map, and a capsule aimed at lava or a slope next to it is moved to the nearest safe flat ground.
         [h2]Guided descent[/h2]
         The capsule starts 500 m above the point and comes down slowly, seen from an outside camera.
         [list]
@@ -18,7 +19,7 @@
         Each thruster flame follows the lean, and a re-entry shock wave of plasma wraps the heat shield while the capsule falls fast.
         The last 100 m are the game's own landing.
         [h2]Starting lander[/h2]
-        On a new world, the lander (and the rest of the starting kit) comes down from the sky next to the first player with the mod, as soon as they step out of the capsule.
+        On a new world, the lander (and the rest of the starting kit: the brutal crate and wreckage, oxygen tanks...) comes down from the sky next to the first player with the mod, as soon as they step out of the capsule. Community start conditions give each player their own lander, which follows that player's capsule. On worlds with lava it lands right next to the capsule.
         [h2]Multiplayer[/h2]
         The host needs the mod. Players that also have it get the map and the guided descent; players without it land the normal way.
         Thruster lean and re-entry effects are only drawn for players with the mod.

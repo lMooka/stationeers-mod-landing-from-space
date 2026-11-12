@@ -255,6 +255,9 @@ namespace LandingFromSpace
                 target = new Vector2(current.x, current.z);
             }
             target = ClampToWorld(target);
+            // Ponto em cima da lava: a descida guiada ja comeca sobre o chao seguro mais proximo.
+            Vector3 dry = AwayFromLava(new Vector3(target.x, 0f, target.y));
+            target = new Vector2(dry.x, dry.z);
             session.Target = new Vector3(target.x, 0f, target.y);
             session.Phase = Phase.WaitingTerrain;
             session.TerrainDeadline = Time.time + TerrainWaitSeconds;
@@ -425,6 +428,7 @@ namespace LandingFromSpace
                 capsule.Transform.rotation = session.Upright;
             }
             Vector3 ground = SafeGroundPoint(capsule.Transform.position);
+            LastDropPoint = ground;
             Plugin.Log.LogInfo($"Capsule {session.CapsuleId} descends at ({ground.x:0}, {ground.z:0}) [{reason}].");
             Resume(capsule, ground);
         }
@@ -531,10 +535,91 @@ namespace LandingFromSpace
             return SpawnPoint.GetSafePoint(position).y - 4f;
         }
 
-        /// <summary>Mesmo calculo que o jogo usa para escolher onde a capsula nasce.</summary>
+        /// <summary>
+        /// Mesmo calculo que o jogo usa para escolher onde a capsula nasce, mas antes tira o ponto de cima da lava
+        /// (a busca do jogo so anda alguns metros e nao sai de um lago de lava grande).
+        /// </summary>
         public static Vector3 SafeGroundPoint(Vector3 position)
         {
-            return SpawnPoint.GetSafePoint(new Vector3(position.x, 0f, position.z), Vector3.zero, avoidStructure: true);
+            Vector3 dry = AwayFromLava(position);
+            return SpawnPoint.GetSafePoint(new Vector3(dry.x, 0f, dry.z), Vector3.zero, avoidStructure: true);
+        }
+
+        /// <summary>Somente para o autoteste: ultimo ponto no chao onde uma capsula foi entregue ao pouso final.</summary>
+        public static Vector3 LastDropPoint;
+
+        /// <summary>Margem em volta do ponto que tambem precisa estar sem lava (a capsula pode escorregar depois do pouso).</summary>
+        private const float LavaMargin = 15f;
+
+        /// <summary>Desnivel maximo dentro da margem: numa encosta a capsula escorrega para a lava.</summary>
+        private const float MaxLavaSlope = 5f;
+
+        /// <summary>O chao em (x, z) esta coberto de lava.</summary>
+        public static bool IsLava(Vector3 position)
+        {
+            WorldSetting world = WorldSetting.Current;
+            if (world == null || !world.HasLava)
+            {
+                return false;
+            }
+            float ground = GroundHeight(position);
+            return world.GetLavaHeight(new Vector3(position.x, ground, position.z)) > ground - 0.2f;
+        }
+
+        /// <summary>O ponto e a volta dele (LavaMargin) estao sem lava, num chao quase plano.</summary>
+        private static bool IsDry(Vector3 position)
+        {
+            WorldSetting world = WorldSetting.Current;
+            float min = float.MaxValue;
+            float max = float.MinValue;
+            for (int ring = 0; ring <= 2; ring++)
+            {
+                int count = ring == 0 ? 1 : 8;
+                for (int i = 0; i < count; i++)
+                {
+                    Vector3 point = position + Quaternion.Euler(0f, i * 45f + ring * 22.5f, 0f) * Vector3.forward * (LavaMargin * ring / 2f);
+                    float ground = GroundHeight(point);
+                    if (world.GetLavaHeight(new Vector3(point.x, ground, point.z)) > ground - 0.2f)
+                    {
+                        return false;
+                    }
+                    min = Mathf.Min(min, ground);
+                    max = Mathf.Max(max, ground);
+                    if (max - min > MaxLavaSlope)
+                    {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        /// <summary>O ponto sem lava mais proximo (procura em aneis de 8 m, ate 600 m). Sem lava no mundo: o proprio ponto.</summary>
+        public static Vector3 AwayFromLava(Vector3 position)
+        {
+            WorldSetting world = WorldSetting.Current;
+            if (world == null || !world.HasLava || IsDry(position))
+            {
+                return position;
+            }
+            for (float ring = 8f; ring <= 600f; ring += 8f)
+            {
+                int steps = Mathf.Clamp(Mathf.CeilToInt(ring * 2f * Mathf.PI / 8f), 8, 96);
+                float start = UnityEngine.Random.Range(0f, 360f);
+                for (int i = 0; i < steps; i++)
+                {
+                    Vector3 candidate = position + Quaternion.Euler(0f, start + i * 360f / steps, 0f) * Vector3.forward * ring;
+                    Vector2 clamped = ClampToWorld(new Vector2(candidate.x, candidate.z));
+                    candidate = new Vector3(clamped.x, 0f, clamped.y);
+                    if (IsDry(candidate))
+                    {
+                        Plugin.Log.LogInfo($"Landing point ({position.x:0}, {position.z:0}) is on lava; moved {ring:0} m to ({candidate.x:0}, {candidate.z:0}).");
+                        return candidate;
+                    }
+                }
+            }
+            Plugin.Log.LogWarning($"No ground without lava found near ({position.x:0}, {position.z:0}).");
+            return position;
         }
     }
 }

@@ -68,7 +68,7 @@ namespace LandingFromSpace
             SteerResponsiveness = Config.Bind("Descent", "SteerResponsiveness", 2.5f,
                 "Host: how quickly the capsule speeds up, slows down and leans when the player steers. Higher is snappier, lower is floatier.");
             MouseSensitivity = Config.Bind("Camera", "MouseSensitivity", 3f, "Client: mouse sensitivity of the outside camera during the guided descent.");
-            CameraDistance = Config.Bind("Camera", "CameraDistance", 22f, "Client: distance from the outside camera to the capsule.");
+            CameraDistance = Config.Bind("Camera", "CameraDistance", 15.4f, "Client: distance from the outside camera to the capsule.");
             EntryEffect = Config.Bind("Camera", "EntryEffect", true,
                 "Client: show the atmospheric entry effect (plasma glow and fire under the capsule) during the guided descent.");
             CameraPitch = Config.Bind("Camera", "CameraPitch", 65f,

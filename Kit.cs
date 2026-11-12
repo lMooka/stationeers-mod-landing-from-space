@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using Assets.Scripts;
 using Assets.Scripts.Networking;
 using Assets.Scripts.Objects;
@@ -47,12 +48,16 @@ namespace LandingFromSpace
         public static long ClaimedBy => _lastClaimedBy;
         public static string LastSources { get; private set; } = "";
 
+        /// <summary>Somente para o autoteste: onde cada item do kit pousou (antes da fisica mexer nele).</summary>
+        public static readonly Dictionary<long, Vector3> Landed = new Dictionary<long, Vector3>();
+
         /// <summary>Saiu do mundo: os kits pendentes pertencem a ele e nao valem para o proximo.</summary>
         public static void Reset()
         {
             _worldKit = null;
             PlayerKits.Clear();
             Claims.Clear();
+            Landed.Clear();
             LastClaimed.Clear();
             _lastClaimedBy = 0;
             _before = null;
@@ -274,60 +279,254 @@ namespace LandingFromSpace
 
             Vector3 landing = capsule.Transform.position;
             Vector3? player = (object)human != null && human != null ? human.Transform.position : (Vector3?)null;
-            float radius = Mathf.Max(Clearance, Plugin.KitRadius.Value);
-            List<Vector3> taken = new List<Vector3>();
-            int moved = 0;
+
+            List<DynamicThing> things = new List<DynamicThing>();
             foreach (long id in thingIds)
             {
-                DynamicThing thing = Thing.Find(id) as DynamicThing;
-                if (thing == null || thing.ParentSlot != null)
+                if (Thing.Find(id) is DynamicThing thing && thing.ParentSlot == null)
                 {
-                    continue;
+                    things.Add(thing);
                 }
-                Vector3 safe = PickSpot(landing, player, radius, taken);
-                taken.Add(safe);
-                Plugin.Log.LogInfo($"Kit item {thing.DisplayName}: capsule ({landing.x:0.0}, {landing.z:0.0}), player {(player.HasValue ? $"({player.Value.x:0.0}, {player.Value.z:0.0})" : "-")}, spot ({safe.x:0.0}, {safe.z:0.0}).");
-                Plugin.Instance.StartCoroutine(FallFromSky(thing, safe, Quaternion.Euler(0f, UnityEngine.Random.Range(0f, 360f), 0f), moved * 1.5f));
-                moved++;
             }
-            Plugin.Log.LogInfo($"Player left the capsule: starting kit falling within {radius:0} m of ({landing.x:0}, {landing.z:0}): {moved} thing(s).");
+            if (things.Count == 0)
+            {
+                yield break;
+            }
+
+            // Mantem o arranjo que o jogo criou (ex.: os destrocos espalhados do modo brutal) e so desloca o conjunto
+            // inteiro para o lado da capsula, longe do jogador.
+            Vector3 centroid = Vector3.zero;
+            foreach (DynamicThing thing in things)
+            {
+                centroid += thing.Transform.position;
+            }
+            centroid /= things.Count;
+            List<Vector3> offsets = new List<Vector3>();
+            float layoutRadius = 0f;
+            foreach (DynamicThing thing in things)
+            {
+                Vector3 offset = thing.Transform.position - centroid;
+                offset.y = 0f;
+                offsets.Add(offset);
+                layoutRadius = Mathf.Max(layoutRadius, offset.magnitude);
+            }
+            // Em mundos com lava (Vulcano) o kit fica colado na capsula: a borda de cada item a no maximo
+            // TightGap metros da borda da capsula, onde o chao ja e seguro (a capsula acabou de pousar ali).
+            bool tight = WorldSetting.Current != null && WorldSetting.Current.HasLava;
+            float capsuleRadius = Footprint(capsule, out _);
+            List<float> radii = new List<float>();
+            List<Vector3> pivots = new List<Vector3>();
+            foreach (DynamicThing thing in things)
+            {
+                radii.Add(Footprint(thing, out Vector3 pivot));
+                pivots.Add(pivot);
+            }
+            float anchor = 0f;
+            if (tight)
+            {
+                float scale = layoutRadius > TightLayoutRadius ? TightLayoutRadius / layoutRadius : 1f;
+                for (int i = 0; i < offsets.Count; i++)
+                {
+                    offsets[i] *= scale;
+                }
+                layoutRadius *= scale;
+                // Distancia do centro do arranjo ate a capsula para o item mais proximo ficar a TightGap da borda.
+                anchor = capsuleRadius + TightGap + layoutRadius + radii.Max();
+                if (things.Count == 1)
+                {
+                    anchor = capsuleRadius + TightGap + radii[0];
+                }
+            }
+            Vector3 center = tight ? PickTightCenter(landing, player, offsets, anchor) : PickCenter(landing, player, offsets, layoutRadius);
+
+            for (int i = 0; i < things.Count; i++)
+            {
+                DynamicThing thing = things[i];
+                // O centro visual do item fica no ponto escolhido (o pivo do modelo nem sempre e o centro).
+                Vector3 target = center + offsets[i] - pivots[i];
+                Vector3 safe = SpawnPoint.GetSafePoint(new Vector3(target.x, 0f, target.z), Vector3.zero, avoidStructure: true);
+                Vector3 fromCapsule = new Vector3(safe.x + pivots[i].x - landing.x, 0f, safe.z + pivots[i].z - landing.z);
+                float minimum = tight ? capsuleRadius + radii[i] + 0.3f : Clearance * 0.8f;
+                if (fromCapsule.magnitude < minimum)
+                {
+                    // GetSafePoint (ou o proprio arranjo) ficou perto demais da capsula: afasta.
+                    Vector3 away = fromCapsule.sqrMagnitude > 0.01f ? fromCapsule.normalized : (center - landing).normalized;
+                    away.y = 0f;
+                    Vector3 pushed = landing + away.normalized * (tight ? capsuleRadius + radii[i] + TightGap * 0.5f : Clearance) - pivots[i];
+                    safe = SpawnPoint.GetSafePoint(new Vector3(pushed.x, 0f, pushed.z), Vector3.zero, avoidStructure: true);
+                }
+                Plugin.Log.LogInfo($"Kit item {thing.DisplayName}: capsule ({landing.x:0.0}, {landing.z:0.0}), player {(player.HasValue ? $"({player.Value.x:0.0}, {player.Value.z:0.0})" : "-")}, spot ({safe.x:0.0}, {safe.z:0.0}).");
+                // Com varios itens, caem quase juntos, como uma chuva de destrocos.
+                float delay = things.Count == 1 ? 0f : UnityEngine.Random.Range(0f, 1.2f);
+                Plugin.Instance.StartCoroutine(FallFromSky(thing, safe, thing.Transform.rotation, delay));
+            }
+            Plugin.Log.LogInfo($"Player left the capsule: starting kit falling around ({center.x:0}, {center.z:0}), {FlatDistance(center, landing):0} m from the capsule at ({landing.x:0}, {landing.z:0}): {things.Count} thing(s), layout radius {layoutRadius:0} m.");
         }
 
         /// <summary>
-        /// Escolhe um ponto no chao entre <see cref="Clearance"/> e <paramref name="radius"/> metros da capsula,
-        /// o mais longe possivel do jogador e dos outros itens ja colocados.
+        /// Escolhe onde fica o centro do arranjo do kit: entre <see cref="Clearance"/> e KitRadius metros alem da
+        /// borda do arranjo, na direcao que deixa os itens mais longe do jogador e sem nenhum em cima da capsula.
         /// </summary>
-        private static Vector3 PickSpot(Vector3 landing, Vector3? player, float radius, List<Vector3> taken)
+        private static Vector3 PickCenter(Vector3 landing, Vector3? player, List<Vector3> offsets, float layoutRadius)
         {
-            Vector3 best = landing + Vector3.forward * radius;
+            float radius = Mathf.Max(Clearance, Plugin.KitRadius.Value);
+            Vector3 best = landing + Vector3.forward * (radius + layoutRadius);
             float bestScore = float.MinValue;
             float start = UnityEngine.Random.Range(0f, 360f);
             for (int i = 0; i < 12; i++)
             {
                 Vector3 dir = Quaternion.Euler(0f, start + i * 30f, 0f) * Vector3.forward;
-                float distance = UnityEngine.Random.Range(Clearance, radius);
-                Vector3 target = landing + dir * distance;
-                Vector3 safe = SpawnPoint.GetSafePoint(new Vector3(target.x, 0f, target.z), Vector3.zero, avoidStructure: true);
-                float score = 0f;
-                if (player.HasValue)
+                Vector3 center = landing + dir * (UnityEngine.Random.Range(Clearance, radius) + layoutRadius);
+                float nearestPlayer = float.MaxValue;
+                float nearestCapsule = float.MaxValue;
+                foreach (Vector3 offset in offsets)
                 {
-                    score += Mathf.Min(FlatDistance(safe, player.Value), 30f);
+                    Vector3 item = center + offset;
+                    nearestCapsule = Mathf.Min(nearestCapsule, FlatDistance(item, landing));
+                    if (player.HasValue)
+                    {
+                        nearestPlayer = Mathf.Min(nearestPlayer, FlatDistance(item, player.Value));
+                    }
                 }
-                foreach (Vector3 other in taken)
+                float score = player.HasValue ? Mathf.Min(nearestPlayer, 30f) : 0f;
+                if (nearestCapsule < Clearance * 0.8f)
                 {
-                    score += Mathf.Min(FlatDistance(safe, other), 15f);
+                    score -= 100f;
                 }
-                if (FlatDistance(safe, landing) < Clearance * 0.8f)
-                {
-                    score -= 100f; // GetSafePoint empurrou para perto demais da capsula
-                }
+                // Prefere chao plano: numa encosta os itens (tanques, principalmente) saem rolando.
+                score -= SlopePenalty * HeightRange(center, layoutRadius + 3f);
                 if (score > bestScore)
                 {
                     bestScore = score;
-                    best = safe;
+                    best = center;
                 }
             }
             return best;
+        }
+
+        /// <summary>Mundos com lava: folga maxima entre a borda da capsula e a borda do item.</summary>
+        private const float TightGap = 1.5f;
+
+        /// <summary>Mundos com lava: raio maximo do arranjo de varios itens (os destrocos do brutal ficam juntos).</summary>
+        private const float TightLayoutRadius = 4f;
+
+        /// <summary>
+        /// Raio horizontal do item e o deslocamento do centro dele em relacao ao pivo, medidos pela malha 3D.
+        /// Colisores nao servem: o jogo desliga os colisores de objetos longe do jogador (o lander nasce longe).
+        /// Ignora os efeitos da capsula (EntryEffects e os do mod) e os objetos guardados dentro (jogador, itens).
+        /// </summary>
+        public static float Footprint(Thing thing, out Vector3 pivot)
+        {
+            pivot = Vector3.zero;
+            if (thing == null)
+            {
+                return 1f;
+            }
+            Bounds? bounds = null;
+            foreach (MeshFilter filter in thing.GetComponentsInChildren<MeshFilter>())
+            {
+                Mesh mesh = filter != null ? filter.sharedMesh : null;
+                if (mesh == null || filter.GetComponentInParent<Thing>() != thing || IsEffect(filter.transform, thing.Transform))
+                {
+                    continue;
+                }
+                Bounds local = mesh.bounds;
+                Matrix4x4 toWorld = filter.transform.localToWorldMatrix;
+                for (int corner = 0; corner < 8; corner++)
+                {
+                    Vector3 point = local.center + Vector3.Scale(local.extents, new Vector3((corner & 1) == 0 ? -1 : 1, (corner & 2) == 0 ? -1 : 1, (corner & 4) == 0 ? -1 : 1));
+                    Vector3 world = toWorld.MultiplyPoint3x4(point);
+                    if (bounds.HasValue)
+                    {
+                        Bounds b = bounds.Value;
+                        b.Encapsulate(world);
+                        bounds = b;
+                    }
+                    else
+                    {
+                        bounds = new Bounds(world, Vector3.zero);
+                    }
+                }
+            }
+            if (!bounds.HasValue)
+            {
+                return 1f;
+            }
+            Vector3 offset = bounds.Value.center - thing.Transform.position;
+            pivot = new Vector3(offset.x, 0f, offset.z);
+            return Mathf.Max(0.3f, Mathf.Max(bounds.Value.extents.x, bounds.Value.extents.z));
+        }
+
+        private static bool IsEffect(Transform t, Transform root)
+        {
+            for (; t != null && t != root; t = t.parent)
+            {
+                if (t.name == "EntryEffects" || t.name.StartsWith("LandingFromSpace", StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Mundos com lava: o arranjo fica a <paramref name="anchor"/> metros da capsula, no lado sem lava, mais
+        /// plano e mais longe do jogador.
+        /// </summary>
+        private static Vector3 PickTightCenter(Vector3 landing, Vector3? player, List<Vector3> offsets, float anchor)
+        {
+            Vector3 best = landing + Vector3.forward * anchor;
+            float bestScore = float.MinValue;
+            float start = UnityEngine.Random.Range(0f, 360f);
+            for (int i = 0; i < 16; i++)
+            {
+                Vector3 dir = Quaternion.Euler(0f, start + i * 22.5f, 0f) * Vector3.forward;
+                Vector3 center = landing + dir * anchor;
+                float score = 0f;
+                float nearestPlayer = float.MaxValue;
+                foreach (Vector3 offset in offsets)
+                {
+                    Vector3 item = center + offset;
+                    Vector3 ground = new Vector3(item.x, ServerPilot.GroundHeight(item), item.z);
+                    if (WorldSetting.Current.IsUnderLava(ground))
+                    {
+                        score -= 1000f;
+                    }
+                    if (player.HasValue)
+                    {
+                        nearestPlayer = Mathf.Min(nearestPlayer, FlatDistance(item, player.Value));
+                    }
+                }
+                if (player.HasValue)
+                {
+                    score += Mathf.Min(nearestPlayer, 10f);
+                }
+                score -= SlopePenalty * HeightRange(center, Mathf.Max(2f, anchor * 0.3f));
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    best = center;
+                }
+            }
+            return best;
+        }
+
+        /// <summary>Pontos por metro de desnivel na area do kit ao escolher o lado da capsula.</summary>
+        private const float SlopePenalty = 2f;
+
+        /// <summary>Diferenca entre o ponto mais alto e o mais baixo do terreno num circulo em volta de <paramref name="center"/>.</summary>
+        private static float HeightRange(Vector3 center, float radius)
+        {
+            float min = float.MaxValue;
+            float max = float.MinValue;
+            for (int i = 0; i <= 8; i++)
+            {
+                Vector3 point = i == 0 ? center : center + Quaternion.Euler(0f, i * 45f, 0f) * Vector3.forward * radius;
+                float height = ServerPilot.GroundHeight(point);
+                min = Mathf.Min(min, height);
+                max = Mathf.Max(max, height);
+            }
+            return max - min;
         }
 
         private static float FlatDistance(Vector3 a, Vector3 b) => new Vector2(a.x - b.x, a.z - b.z).magnitude;
@@ -386,6 +585,7 @@ namespace LandingFromSpace
                     body.angularVelocity = Vector3.zero;
                 }
             }
+            Landed[thing.ReferenceId] = ground;
             Plugin.Log.LogInfo($"Starting kit item {thing.DisplayName} landed at ({ground.x:0}, {ground.z:0}).");
         }
     }

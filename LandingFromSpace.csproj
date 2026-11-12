@@ -25,6 +25,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Camadas de lava prontas por mundo (Lava/lava_<IdDoMundo>.png), geradas pelo proprio mod e copiadas do cache. -->
+    <EmbeddedResource Include="Lava\*.png" LogicalName="LandingFromSpace.Lava.%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Reference Include="$(ManagedDir)\Assembly-CSharp.dll" Private="false" />
     <Reference Include="$(ManagedDir)\Assembly-CSharp-firstpass.dll" Private="false" />
     <Reference Include="$(ManagedDir)\UniTask.dll" Private="false" />
@@ -36,6 +41,7 @@
     <Reference Include="$(ManagedDir)\UnityEngine.TextRenderingModule.dll" Private="false" />
     <Reference Include="$(ManagedDir)\UnityEngine.ParticleSystemModule.dll" Private="false" />
     <Reference Include="$(ManagedDir)\UnityEngine.ScreenCaptureModule.dll" Private="false" />
+    <Reference Include="$(ManagedDir)\UnityEngine.ImageConversionModule.dll" Private="false" />
     <Reference Include="$(BepInExDir)\BepInEx.dll" Private="false" />
     <Reference Include="$(BepInExDir)\0Harmony.dll" Private="false" />
   </ItemGroup>

@@ -5,7 +5,9 @@ param(
     [string]$GameDir = "G:\SteamLibrary\steamapps\common\Stationeers",
     [int]$TimeoutSeconds = 280,
     # Condicao de inicio do mundo de teste (ex.: DefaultStartCommunity). Vazio = a padrao do mundo.
-    [string]$StartCondition = ""
+    [string]$StartCondition = "",
+    # Mundo de teste (ex.: Lunar, Europa3, MimasHerschel, Venus). Vazio = Vulcan2 (lava, encostas: o mais dificil).
+    [string]$World = ""
 )
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -19,7 +21,7 @@ if (Get-Process rocketstation -ErrorAction SilentlyContinue) { throw "O Statione
 
 & $deploy -GameDir $GameDir -SelfTest | Out-Null
 $savesBefore = (Get-ChildItem (Join-Path $docs "saves") -Directory).Name
-Set-Content $flag $(if ($StartCondition) { $StartCondition } else { "1" })
+Set-Content $flag "$World|$StartCondition"
 $before = (Get-Item $log).LastWriteTime
 $done = $false
 try {

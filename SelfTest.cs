@@ -1,7 +1,7 @@
 #if SELFTEST
 // Autoteste de desenvolvimento. So entra na DLL quando compilada com -p:SelfTest=true e so roda se existir
 // o arquivo %TEMP%\landingfromspace_selftest.flag. Abre um mundo novo descartavel, espera a capsula ficar parada
-// esperando a escolha, escolhe um ponto do mapa e confere onde a capsula e o lander pousaram.
+// esperando a escolha, escolhe um ponto do mapa e confere onde a capsula e o kit inicial pousaram.
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -21,12 +21,13 @@ namespace LandingFromSpace
         private static readonly string FlagPath = Path.Combine(Path.GetTempPath(), "landingfromspace_selftest.flag");
         private static readonly bool Active = File.Exists(FlagPath);
 
-        /// <summary>Condicao de inicio pedida pelo selftest.ps1 (conteudo do arquivo de sinal), ou null para a padrao.</summary>
-        private static string RequestedStart()
+        /// <summary>Parte do arquivo de sinal do selftest.ps1 ("Mundo|Condicao"), ou null para a padrao.</summary>
+        private static string Requested(int index)
         {
             try
             {
-                string text = File.ReadAllText(FlagPath).Trim();
+                string[] parts = File.ReadAllText(FlagPath).Trim().Split('|');
+                string text = index < parts.Length ? parts[index].Trim() : "";
                 return text.Length == 0 || text == "1" ? null : text;
             }
             catch
@@ -68,10 +69,12 @@ namespace LandingFromSpace
         {
             try
             {
-                WorldSetting world = WorldSetting.AllWorldSettings.FirstOrDefault(w => !w.IsTutorial && !w.IsDeprecated && w.Id.IndexOf("Lunar", StringComparison.OrdinalIgnoreCase) >= 0)
+                string wanted = Requested(0) ?? "Vulcan2";
+                WorldSetting world = WorldSetting.AllWorldSettings.FirstOrDefault(w => !w.IsTutorial && !w.IsDeprecated && string.Equals(w.Id, wanted, StringComparison.OrdinalIgnoreCase))
+                    ?? WorldSetting.AllWorldSettings.FirstOrDefault(w => !w.IsTutorial && !w.IsDeprecated && w.Id.IndexOf(wanted, StringComparison.OrdinalIgnoreCase) >= 0)
                     ?? WorldSetting.AllWorldSettings.FirstOrDefault(w => !w.IsTutorial && !w.IsDeprecated);
                 DifficultySetting difficulty = DifficultySetting.Find("Normal") ?? DifficultySetting.AllSettings.FirstOrDefault();
-                string requested = RequestedStart();
+                string requested = Requested(1);
                 StartConditionData start = (requested != null ? world.Data.StartConditionDatas.FirstOrDefault(s => s.Id == requested) : null)
                     ?? world.Data.StartConditionDatas.FirstOrDefault(s => s.IsDefault) ?? world.Data.StartConditionDatas.FirstOrDefault();
                 // O mundo so guarda uma referencia (Id); os spawns de verdade estao no registro de dados.
@@ -127,16 +130,23 @@ namespace LandingFromSpace
 
         private static float Flat(Vector3 a, Vector3 b) => new Vector2(a.x - b.x, a.z - b.z).magnitude;
 
-        private static DynamicThing FindLander()
+        /// <summary>Itens soltos do kit reservado (lander, caixa do brutal, tanques...).</summary>
+        private static List<DynamicThing> KitRoots()
         {
+            List<DynamicThing> roots = new List<DynamicThing>();
             foreach (long id in Kit.Things)
             {
-                if (Thing.Find(id) is Lander lander && lander.ParentSlot == null)
+                if (Thing.Find(id) is DynamicThing thing && thing.ParentSlot == null)
                 {
-                    return lander;
+                    roots.Add(thing);
                 }
             }
-            return null;
+            return roots;
+        }
+
+        private static string Describe(IEnumerable<DynamicThing> things)
+        {
+            return string.Join(" ", things.Select(t => $"{t.DisplayName}@({t.Transform.position.x:0},{t.Transform.position.y:0},{t.Transform.position.z:0})"));
         }
 
         private static void Shot(string name)
@@ -252,8 +262,37 @@ namespace LandingFromSpace
             }
         }
 
+        /// <summary>Lista as fontes do jogo (para a interface do mod seguir o visual do jogo).</summary>
+        private static void DumpFonts()
+        {
+            try
+            {
+                foreach (Font font in Resources.FindObjectsOfTypeAll<Font>())
+                {
+                    if (font != null)
+                    {
+                        Plugin.Log.LogInfo($"SELFTEST FONT legacy {font.name} dynamic={font.dynamic} size={font.fontSize}");
+                    }
+                }
+                Type tmp = AccessTools.TypeByName("TMPro.TMP_FontAsset");
+                if (tmp != null)
+                {
+                    foreach (UnityEngine.Object asset in Resources.FindObjectsOfTypeAll(tmp))
+                    {
+                        object source = AccessTools.Property(tmp, "sourceFontFile")?.GetValue(asset, null);
+                        Plugin.Log.LogInfo($"SELFTEST FONT tmp {asset.name} source={(source as UnityEngine.Object)?.name ?? "-"}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.LogWarning($"SELFTEST font dump failed: {ex.Message}");
+            }
+        }
+
         private static IEnumerator Run()
         {
+            DumpFonts();
             ServerPilot.Session session = ServerPilot.Sessions.Values.First();
             LanderCapsule capsule = session.Capsule;
             DumpEffects(capsule);
@@ -261,12 +300,25 @@ namespace LandingFromSpace
             Check("capsula parada (cinematica) e travada", capsule.RigidBody.isKinematic && capsule.IsLocked);
             Check($"kit inicial rastreado e reservado para esta capsula ({Kit.LastSources})", Kit.IsClaimed && Kit.ClaimedBy == capsule.ReferenceId,
                 $"itens={Kit.Things.Count}");
-            DynamicThing lander = FindLander();
-            Check("lander faz parte do kit", lander != null);
-            Vector3 landerStart = lander != null ? lander.Transform.position : Vector3.zero;
+            List<DynamicThing> kit = KitRoots();
+            Dictionary<long, Vector3> kitStart = kit.ToDictionary(t => t.ReferenceId, t => t.Transform.position);
+            Check("kit tem itens soltos para levar", kit.Count > 0, $"[{Describe(kit)}]");
 
             yield return new WaitForSeconds(3f);
             Check("tela do mapa aberta", MapPicker.IsOpen && MapPicker.CapsuleId == capsule.ReferenceId);
+            if (WorldSetting.Current != null && WorldSetting.Current.HasLava)
+            {
+                Check("camada de lava pronta ao abrir o mapa (imagem embutida)", LavaMap.Ready && LavaMap.Overlay != null, $"progresso={LavaMap.Progress * 100f:0}%");
+                float lavaDeadline = Time.realtimeSinceStartup + 40f;
+                while (!LavaMap.Ready && Time.realtimeSinceStartup < lavaDeadline)
+                {
+                    yield return null;
+                }
+                Vector3 c0 = capsule.Transform.position;
+                MapPicker.TestSelect(new Vector2(c0.x + 350f, c0.z + 250f));
+                yield return new WaitForEndOfFrame();
+                Shot("0_mapa_lava");
+            }
             Texture2D texture = WorldSetting.Current?.Data?.TerrainSettings?.MiniMapTexture?.Texture;
             Check("mundo tem imagem do mapa", texture != null, $"tamanho={(texture != null ? texture.width + "x" + texture.height : "-")} mundo={TerrainSystem.VoxelConstants.Size}");
             Check("capsula continua parada enquanto escolhe", capsule.RigidBody.isKinematic && !capsule.IsOpen);
@@ -275,7 +327,7 @@ namespace LandingFromSpace
             Vector2 target = new Vector2(start.x + 350f, start.z + 250f);
             MapPicker.Choose(target);
             yield return null;
-            Check("escolha leva a capsula para o alto do destino", Flat(capsule.Transform.position, new Vector3(target.x, 0f, target.y)) < 2f,
+            Check("escolha leva a capsula para o alto do destino (ou do chao seguro mais proximo)", Flat(capsule.Transform.position, session.Target) < 2f,
                 $"pos={capsule.Transform.position}");
 
             float deadline = Time.time + 30f;
@@ -371,13 +423,16 @@ namespace LandingFromSpace
             yield return new WaitForSeconds(3f);
             Vector3 landed = capsule.Transform.position;
             float landedGround = ServerPilot.GroundHeight(landed);
-            Check("capsula pousou no ponto escolhido", Flat(landed, new Vector3(target.x, 0f, target.y)) < 12f, $"alvo=({target.x:0}, {target.y:0}) pouso={landed}");
+            Vector3 dropPoint = ServerPilot.LastDropPoint;
+            Check("capsula pousou onde a descida guiada terminou (ou no chao seguro mais proximo)", Flat(landed, dropPoint) < 12f,
+                $"alvo=({target.x:0}, {target.y:0}) entregue=({dropPoint.x:0}, {dropPoint.z:0}) pouso={landed}");
+            Check("capsula nao pousou na lava", !ServerPilot.IsLava(landed), $"pouso={landed}");
+            float capsuleRadius = Kit.Footprint(capsule, out _);
             Check("capsula esta no chao", Mathf.Abs(landed.y - landedGround) < 8f, $"y={landed.y:0.0} chao={landedGround:0.0}");
 
-            lander = FindLander();
-            Vector3 stillThere = lander != null ? lander.Transform.position : Vector3.zero;
-            Check("lander espera o jogador sair da capsula", lander != null && Kit.WaitingForExit && Flat(stillThere, landerStart) < 5f,
-                $"lander={stillThere}");
+            kit = KitRoots();
+            Check("kit espera o jogador sair da capsula", kit.Count > 0 && Kit.WaitingForExit
+                && kit.All(t => kitStart.TryGetValue(t.ReferenceId, out Vector3 p0) && Flat(t.Transform.position, p0) < 5f), $"[{Describe(kit)}]");
 
             Human pilot = capsule.Slots[1].Get<Human>();
             bool exited = pilot != null && pilot.ExitAnything();
@@ -385,21 +440,54 @@ namespace LandingFromSpace
             Vector3 exitPosition = pilot != null ? pilot.Transform.position : Vector3.zero;
             yield return new WaitForSeconds(2.3f);
             Check("jogador saiu da capsula", exited && capsule.Slots[1].Get<Human>() == null);
-            lander = FindLander();
-            Vector3 falling = lander != null ? lander.Transform.position : Vector3.zero;
-            Check("lander vem caindo do ceu", lander != null && falling.y - ServerPilot.GroundHeight(falling) > 30f && Flat(falling, landed) < Plugin.KitRadius.Value + 6f,
-                $"lander={falling}");
-            yield return new WaitForSeconds(Plugin.KitFallSeconds.Value + 3f);
+            kit = KitRoots();
+            Check("kit vem caindo do ceu", kit.Any(t => t.Transform.position.y - ServerPilot.GroundHeight(t.Transform.position) > 30f
+                && Flat(t.Transform.position, landed) < Plugin.KitRadius.Value + 6f), $"[{Describe(kit)}]");
+            // Cada item comeca a cair 1,5 s depois do anterior.
+            yield return new WaitForSeconds(Plugin.KitFallSeconds.Value + 3f + 1.5f * Mathf.Max(0, kit.Count - 1));
 
-            lander = FindLander();
-            Vector3 landerNow = lander != null ? lander.Transform.position : Vector3.zero;
-            float distance = Flat(landerNow, landed);
-            Check("lander apareceu no raio em volta da capsula", lander != null && !Kit.WaitingForExit && distance >= 8f && distance <= Plugin.KitRadius.Value + 6f,
-                $"distancia={distance:0.0} lander={landerNow}");
-            Check("lander esta no chao", lander != null && Mathf.Abs(landerNow.y - ServerPilot.GroundHeight(landerNow)) < 8f, $"y={landerNow.y:0.0}");
-            if (pilot != null && lander != null)
+            kit = KitRoots();
+            // Posicoes no pouso de cada item (a fisica pode mover depois, ex.: tanque rolando numa encosta).
+            Dictionary<long, Vector3> at = kit.ToDictionary(t => t.ReferenceId, t => Kit.Landed.TryGetValue(t.ReferenceId, out Vector3 l) ? l : t.Transform.position);
+            float drift = kit.Select(t => Flat(t.Transform.position, at[t.ReferenceId])).DefaultIfEmpty(0f).Max();
+            Plugin.Log.LogInfo($"SELFTEST kit: maior deslocamento pela fisica depois do pouso={drift:0.0} m");
+            Plugin.Log.LogInfo($"SELFTEST kit depois da queda: [{Describe(kit)}] capsula=({landed.x:0},{landed.z:0}) jogador={(pilot != null ? pilot.Transform.position.ToString() : "-")}");
+            // Arranjo original do jogo: tamanho e menor distancia entre itens.
+            Vector3 startCenter = Vector3.zero;
+            foreach (Vector3 p0 in kitStart.Values) startCenter += p0;
+            startCenter /= Mathf.Max(1, kitStart.Count);
+            float layoutRadius = kitStart.Values.Select(p0 => Flat(p0, startCenter)).DefaultIfEmpty(0f).Max();
+            float nearestCapsule = kit.Select(t => Flat(at[t.ReferenceId], landed)).DefaultIfEmpty(0f).Min();
+            float farthestCapsule = kit.Select(t => Flat(at[t.ReferenceId], landed)).DefaultIfEmpty(0f).Max();
+            bool lavaWorld = WorldSetting.Current != null && WorldSetting.Current.HasLava;
+            Check("todos os itens do kit perto da capsula", kit.Count > 0 && !Kit.WaitingForExit
+                && nearestCapsule >= (lavaWorld ? 1.5f : 6f) && farthestCapsule <= Plugin.KitRadius.Value + 2f * layoutRadius + 6f,
+                $"mais perto={nearestCapsule:0.0} mais longe={farthestCapsule:0.0} raio do arranjo={layoutRadius:0.0}");
+            if (WorldSetting.Current != null && WorldSetting.Current.HasLava)
             {
-                Check("lander longe do jogador", Flat(landerNow, pilot.Transform.position) > 5f, $"jogador={pilot.Transform.position} jogador ao sair={exitPosition}");
+                float gap = kit.Select(t =>
+                {
+                    float r = Kit.Footprint(t, out Vector3 pivot);
+                    return Flat(at[t.ReferenceId] + pivot, landed) - capsuleRadius - r;
+                }).DefaultIfEmpty(99f).Min();
+                Check("mundo com lava: item mais proximo a ate 3 m da borda da capsula", gap <= 3f, $"folga={gap:0.0} m raio capsula={capsuleRadius:0.0}");
+            }
+            Check("todos os itens do kit no chao", kit.All(t => Mathf.Abs(t.Transform.position.y - ServerPilot.GroundHeight(t.Transform.position)) < 8f));
+            if (pilot != null)
+            {
+                Check("itens do kit pousam longe do jogador", kit.All(t => Flat(at[t.ReferenceId], exitPosition) > 4f), $"jogador ao sair={exitPosition}");
+            }
+            if (kit.Count > 1)
+            {
+                // O arranjo foi so deslocado: as distancias entre os itens devem ficar parecidas com as originais.
+                float worst = 0f;
+                for (int i = 0; i < kit.Count; i++)
+                    for (int j = i + 1; j < kit.Count; j++)
+                    {
+                        if (!kitStart.TryGetValue(kit[i].ReferenceId, out Vector3 a0) || !kitStart.TryGetValue(kit[j].ReferenceId, out Vector3 b0)) continue;
+                        worst = Mathf.Max(worst, Mathf.Abs(Flat(at[kit[i].ReferenceId], at[kit[j].ReferenceId]) - Flat(a0, b0)));
+                    }
+                Check("kit mantem o arranjo original", worst < 3f, $"maior diferenca de distancia entre itens={worst:0.0} m");
             }
         }
     }
