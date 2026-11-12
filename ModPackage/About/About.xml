@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetadata xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    <Name>Landing From Space</Name>
+    <Author>Mooka</Author>
+    <Version>1.0.0</Version>
+    <Description><![CDATA[[h1]Landing From Space[/h1]
+        Choose where you land, then fly your landing capsule down from space.
+        [h2]Choose the spot[/h2]
+        When your capsule spawns, the world map opens: click where you want to land and press [b]Land here[/b] (or Enter).
+        [b]Default spot[/b] lands the normal way. Works on every spawn, including respawns.
+        [h2]Guided descent[/h2]
+        The capsule starts 500 m above the point and comes down slowly, seen from an outside camera.
+        [list]
+        [*][b]WASD[/b] steers it. The capsule leans into the turn, with its heat shield facing where it goes.
+        [*][b]Shift[/b] falls faster.
+        [*][b]Mouse[/b] turns the camera.
+        [/list]
+        Each thruster flame follows the lean, and a re-entry shock wave of plasma wraps the heat shield while the capsule falls fast.
+        The last 100 m are the game's own landing.
+        [h2]Starting lander[/h2]
+        On a new world, the lander (and the rest of the starting kit) comes down from the sky next to the first player with the mod, as soon as they step out of the capsule.
+        [h2]Multiplayer[/h2]
+        The host needs the mod. Players that also have it get the map and the guided descent; players without it land the normal way.
+        Thruster lean and re-entry effects are only drawn for players with the mod.
+        [h2]Options[/h2]
+        BepInEx/config/mooka.stationeers.landingfromspace.cfg: heights, speeds, lean angle, lander radius and fall, camera and effects.
+        [h2]Requirements[/h2]
+        BepInEx + StationeersLaunchPad.
+    ]]></Description>
+    <ChangeLog><![CDATA[
+        1.0.0:
+        - First version
+    ]]></ChangeLog>
+    <WorkshopHandle>0</WorkshopHandle>
+    <Tags />
+    <Dependencies />
+    <LoadBefore />
+    <LoadAfter />
+    <InGameDescription><![CDATA[Choose on the world map where you land, then steer your capsule down from space. The starting lander follows the first player with the mod on a new world.]]></InGameDescription>
+</ModMetadata>
