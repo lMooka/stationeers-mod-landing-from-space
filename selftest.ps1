@@ -3,7 +3,9 @@
 # Uso:  powershell -ExecutionPolicy Bypass -File LandingFromSpace\selftest.ps1
 param(
     [string]$GameDir = "G:\SteamLibrary\steamapps\common\Stationeers",
-    [int]$TimeoutSeconds = 280
+    [int]$TimeoutSeconds = 280,
+    # Condicao de inicio do mundo de teste (ex.: DefaultStartCommunity). Vazio = a padrao do mundo.
+    [string]$StartCondition = ""
 )
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -17,7 +19,7 @@ if (Get-Process rocketstation -ErrorAction SilentlyContinue) { throw "O Statione
 
 & $deploy -GameDir $GameDir -SelfTest | Out-Null
 $savesBefore = (Get-ChildItem (Join-Path $docs "saves") -Directory).Name
-Set-Content $flag "1"
+Set-Content $flag $(if ($StartCondition) { $StartCondition } else { "1" })
 $before = (Get-Item $log).LastWriteTime
 $done = $false
 try {

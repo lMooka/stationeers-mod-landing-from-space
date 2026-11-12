@@ -10,50 +10,77 @@ using UnityEngine;
 namespace LandingFromSpace
 {
     /// <summary>
-    /// Kit inicial de um mundo novo (lander, caixa do modo brutal, tanques...): tudo o que a condicao de inicio
-    /// cria no evento NewWorld. Se a primeira capsula do mundo for pilotada, o kit vai para onde ela pousar.
-    /// Se o primeiro jogador nao tiver o mod, o kit fica onde o jogo colocou.
+    /// Kit inicial (lander, caixa do modo brutal, tanques...): o que a condicao de inicio cria fora da capsula.
+    ///  - Kit do mundo: criado no evento NewWorld (condicao padrao). Vai com a primeira capsula do mundo,
+    ///    se ela for pilotada; se o primeiro jogador nao tiver o mod, fica onde o jogo colocou.
+    ///  - Kit do jogador: criado nos eventos NewPlayer/RespawnPlayer (ex.: DefaultStartCommunity da um lander
+    ///    para cada jogador novo). Vai com a capsula do proprio jogador, se ele pilotar.
+    /// O kit cai do ceu perto da capsula quando o dono sai dela.
     /// </summary>
     public static class Kit
     {
-        private enum KitState { None, Pending, Claimed, Done }
+        private sealed class Entry
+        {
+            public readonly List<long> Ids = new List<long>();
+            public string Source;
+        }
 
-        private static KitState _state = KitState.None;
-        private static readonly List<long> ThingIds = new List<long>();
-        private static Vector3 _center;
-        private static long _claimedBy;
+        private enum Kind { None, World, Player }
+
+        private static Entry _worldKit;                                                                  // ate a primeira capsula do mundo decidir
+        private static readonly Dictionary<long, Entry> PlayerKits = new Dictionary<long, Entry>();         // por jogador (ReferenceId)
+        private static readonly Dictionary<long, List<Entry>> Claims = new Dictionary<long, List<Entry>>(); // por capsula
+
         private static HashSet<long> _before;
+        private static Kind _kind;
+        private static Human _player;
+
+        private static readonly List<long> LastClaimed = new List<long>();
+        private static long _lastClaimedBy;
 
         /// <summary>Distancia minima entre a capsula e qualquer item do kit depois de mudar de lugar.</summary>
         private const float Clearance = 9f;
 
-        public static bool IsPending => _state == KitState.Pending;
-        public static bool IsClaimed => _state == KitState.Claimed;
-        public static bool IsDone => _state == KitState.Done;
-        public static long ClaimedBy => _claimedBy;
-        public static IReadOnlyList<long> Things => ThingIds;
-        public static Vector3 Center => _center;
+        /// <summary>Somente para o autoteste: itens do ultimo kit reservado.</summary>
+        public static IReadOnlyList<long> Things => LastClaimed;
+        public static bool IsClaimed => Claims.Count > 0;
+        public static long ClaimedBy => _lastClaimedBy;
+        public static string LastSources { get; private set; } = "";
 
-        /// <summary>Saiu do mundo: o kit pendente pertence a ele e nao vale para o proximo.</summary>
+        /// <summary>Saiu do mundo: os kits pendentes pertencem a ele e nao valem para o proximo.</summary>
         public static void Reset()
         {
-            if (_state == KitState.None && ThingIds.Count == 0)
-            {
-                return;
-            }
-            _state = KitState.None;
-            ThingIds.Clear();
-            _claimedBy = 0;
+            _worldKit = null;
+            PlayerKits.Clear();
+            Claims.Clear();
+            LastClaimed.Clear();
+            _lastClaimedBy = 0;
             _before = null;
+            _kind = Kind.None;
+            _player = null;
         }
 
-        private static bool IsStartConditionNewWorld(SpawnData spawn, Thing parent)
+        private static Kind KindOf(SpawnData spawn, Thing parent, Human player)
         {
-            if ((object)parent != null || spawn == null || spawn.EventType != SpawnEvent.NewWorld)
+            if ((object)parent != null || spawn == null)
             {
-                return false;
+                return Kind.None;
             }
-            return Contains(_spawningWorld?.StartConditionData, spawn) || Contains(WorldSetting.Current?.StartConditionData, spawn);
+            bool listed = Contains(_spawningWorld?.StartConditionData, spawn) || Contains(WorldSetting.Current?.StartConditionData, spawn);
+            if (!listed)
+            {
+                return Kind.None;
+            }
+            switch (spawn.EventType)
+            {
+                case SpawnEvent.NewWorld:
+                    return Kind.World;
+                case SpawnEvent.NewPlayer:
+                case SpawnEvent.RespawnPlayer:
+                    return (object)player != null ? Kind.Player : Kind.None;
+                default:
+                    return Kind.None;
+            }
         }
 
         private static bool Contains(StartConditionData start, SpawnData spawn)
@@ -67,6 +94,7 @@ namespace LandingFromSpace
         public static void SpawnOnNewWorldPrefix(WorldSetting __instance)
         {
             _spawningWorld = __instance;
+            _worldKit = null;
             try
             {
                 StartConditionData start = __instance?.StartConditionData;
@@ -79,48 +107,77 @@ namespace LandingFromSpace
             }
         }
 
-        public static void SpawnExecutePrefix(SpawnData __instance, Thing parent)
+        public static void SpawnExecutePrefix(SpawnData __instance, Thing parent, Human player)
         {
             try
             {
-                // Nao exige RunSimulation: durante a criacao do mundo ela pode ainda nao valer; so o host cria mundo novo.
-                if (!NetworkManager.IsClient && IsStartConditionNewWorld(__instance, parent))
-                {
-                    if (_state != KitState.Pending)
-                    {
-                        // Mundo novo nesta sessao: comeca um kit novo.
-                        ThingIds.Clear();
-                        _claimedBy = 0;
-                        _state = KitState.Pending;
-                        _center = WorldSetting.Current.StartLocationData.Get().WorldPosition();
-                    }
-                    _before = new HashSet<long>(ThingSpawnData.PreSpawnedThingIds);
-                }
-            }
-            catch (Exception ex)
-            {
-                Plugin.Log.LogWarning($"Kit tracking failed: {ex.Message}");
-                _before = null;
-            }
-        }
-
-        public static void SpawnExecutePostfix(SpawnData __instance, Thing parent)
-        {
-            try
-            {
-                if (_before == null || !IsStartConditionNewWorld(__instance, parent))
+                // Nao exige RunSimulation: durante a criacao do mundo ela pode ainda nao valer; so o host cria os kits.
+                if (NetworkManager.IsClient)
                 {
                     return;
                 }
+                Kind kind = KindOf(__instance, parent, player);
+                if (kind == Kind.None)
+                {
+                    return;
+                }
+                _kind = kind;
+                _player = player;
+                _before = new HashSet<long>(ThingSpawnData.PreSpawnedThingIds);
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.LogWarning($"Kit tracking failed: {ex.Message}");
+                _before = null;
+            }
+        }
+
+        public static void SpawnExecutePostfix(SpawnData __instance, Thing parent, Human player)
+        {
+            try
+            {
+                if (_before == null || KindOf(__instance, parent, player) != _kind)
+                {
+                    return;
+                }
+                List<long> created = new List<long>();
+                bool capsule = false;
                 foreach (long id in ThingSpawnData.PreSpawnedThingIds)
                 {
-                    if (!_before.Contains(id) && !ThingIds.Contains(id))
+                    if (!_before.Contains(id))
                     {
-                        ThingIds.Add(id);
+                        created.Add(id);
+                        capsule |= Thing.Find(id) is LanderCapsule;
                     }
                 }
                 _before = null;
-                Plugin.Log.LogInfo($"Starting kit '{__instance.Id}': {ThingIds.Count} thing(s) tracked so far.");
+                // A propria capsula tambem vem de um spawn NewPlayer: ela nao faz parte do kit.
+                if (capsule || created.Count == 0)
+                {
+                    return;
+                }
+                Entry entry;
+                if (_kind == Kind.World)
+                {
+                    entry = _worldKit ??= new Entry { Source = "world" };
+                }
+                else
+                {
+                    long owner = _player.ReferenceId;
+                    if (!PlayerKits.TryGetValue(owner, out entry))
+                    {
+                        entry = new Entry { Source = "player " + _player.DisplayName };
+                        PlayerKits[owner] = entry;
+                    }
+                }
+                foreach (long id in created)
+                {
+                    if (!entry.Ids.Contains(id))
+                    {
+                        entry.Ids.Add(id);
+                    }
+                }
+                Plugin.Log.LogInfo($"Starting kit '{__instance.Id}' ({entry.Source}): {entry.Ids.Count} thing(s) tracked so far.");
             }
             catch (Exception ex)
             {
@@ -128,20 +185,40 @@ namespace LandingFromSpace
             }
         }
 
-        /// <summary>A primeira capsula do mundo decide para onde o kit vai. Retorna true se esta capsula leva o kit.</summary>
-        public static bool OnCapsuleDecided(LanderCapsule capsule, bool steered)
+        /// <summary>
+        /// A capsula de <paramref name="human"/> decidiu se vai ser pilotada. Reserva para ela o kit desse jogador e,
+        /// se for a primeira capsula do mundo, o kit do mundo. Retorna true se ela leva algum kit.
+        /// </summary>
+        public static bool OnCapsuleDecided(LanderCapsule capsule, Human human, bool steered)
         {
-            if (_state != KitState.Pending)
+            List<Entry> taken = new List<Entry>();
+            if ((object)human != null && PlayerKits.TryGetValue(human.ReferenceId, out Entry own))
+            {
+                PlayerKits.Remove(human.ReferenceId);
+                taken.Add(own);
+            }
+            if (_worldKit != null)
+            {
+                taken.Add(_worldKit);
+                _worldKit = null;
+            }
+            if (!steered || !Plugin.MoveStartingKit.Value)
             {
                 return false;
             }
-            if (!steered || !Plugin.MoveStartingKit.Value || ThingIds.Count == 0)
+            taken.RemoveAll(e => e.Ids.Count == 0);
+            if (taken.Count == 0)
             {
-                _state = KitState.Done;
                 return false;
             }
-            _state = KitState.Claimed;
-            _claimedBy = capsule.ReferenceId;
+            Claims[capsule.ReferenceId] = taken;
+            LastClaimed.Clear();
+            foreach (Entry entry in taken)
+            {
+                LastClaimed.AddRange(entry.Ids);
+            }
+            _lastClaimedBy = capsule.ReferenceId;
+            LastSources = string.Join(", ", taken.ConvertAll(e => e.Source));
             return true;
         }
 
@@ -149,10 +226,15 @@ namespace LandingFromSpace
         {
             try
             {
-                if (_state == KitState.Claimed && GameManager.RunSimulation && (object)__instance != null && __instance.ReferenceId == _claimedBy)
+                if (GameManager.RunSimulation && (object)__instance != null && Claims.TryGetValue(__instance.ReferenceId, out List<Entry> kits))
                 {
-                    _state = KitState.Done;
-                    Plugin.Instance.StartCoroutine(MoveKit(__instance));
+                    Claims.Remove(__instance.ReferenceId);
+                    List<long> ids = new List<long>();
+                    foreach (Entry entry in kits)
+                    {
+                        ids.AddRange(entry.Ids);
+                    }
+                    Plugin.Instance.StartCoroutine(MoveKit(__instance, ids));
                 }
             }
             catch (Exception ex)
@@ -169,7 +251,7 @@ namespace LandingFromSpace
             return capsule != null && capsule.Slots.Count > 1 ? capsule.Slots[1].Get<Human>() : null;
         }
 
-        private static IEnumerator MoveKit(LanderCapsule capsule)
+        private static IEnumerator MoveKit(LanderCapsule capsule, List<long> thingIds)
         {
             // So coloca o lander depois que o jogador sai da capsula: assim ele cai num lugar livre e longe do jogador.
             WaitingForExit = true;
@@ -195,7 +277,7 @@ namespace LandingFromSpace
             float radius = Mathf.Max(Clearance, Plugin.KitRadius.Value);
             List<Vector3> taken = new List<Vector3>();
             int moved = 0;
-            foreach (long id in ThingIds)
+            foreach (long id in thingIds)
             {
                 DynamicThing thing = Thing.Find(id) as DynamicThing;
                 if (thing == null || thing.ParentSlot != null)

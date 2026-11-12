@@ -171,7 +171,7 @@ namespace LandingFromSpace
                     }
                 }
                 bool modded = local || (client != null && Net.ModdedClients.Contains(human.OwnerClientId));
-                bool carriesKit = Kit.OnCapsuleDecided(capsule, modded);
+                bool carriesKit = Kit.OnCapsuleDecided(capsule, human, modded);
                 if (!modded)
                 {
                     Plugin.Log.LogInfo($"Capsule of {human.DisplayName}: player has no mod, normal descent.");

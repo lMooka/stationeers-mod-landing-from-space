@@ -18,7 +18,22 @@ namespace LandingFromSpace
 {
     public static class SelfTest
     {
-        private static readonly bool Active = File.Exists(Path.Combine(Path.GetTempPath(), "landingfromspace_selftest.flag"));
+        private static readonly string FlagPath = Path.Combine(Path.GetTempPath(), "landingfromspace_selftest.flag");
+        private static readonly bool Active = File.Exists(FlagPath);
+
+        /// <summary>Condicao de inicio pedida pelo selftest.ps1 (conteudo do arquivo de sinal), ou null para a padrao.</summary>
+        private static string RequestedStart()
+        {
+            try
+            {
+                string text = File.ReadAllText(FlagPath).Trim();
+                return text.Length == 0 || text == "1" ? null : text;
+            }
+            catch
+            {
+                return null;
+            }
+        }
         private static float _nextStatus;
         private static bool _started;
         private static bool _running;
@@ -56,7 +71,9 @@ namespace LandingFromSpace
                 WorldSetting world = WorldSetting.AllWorldSettings.FirstOrDefault(w => !w.IsTutorial && !w.IsDeprecated && w.Id.IndexOf("Lunar", StringComparison.OrdinalIgnoreCase) >= 0)
                     ?? WorldSetting.AllWorldSettings.FirstOrDefault(w => !w.IsTutorial && !w.IsDeprecated);
                 DifficultySetting difficulty = DifficultySetting.Find("Normal") ?? DifficultySetting.AllSettings.FirstOrDefault();
-                StartConditionData start = world.Data.StartConditionDatas.FirstOrDefault(s => s.IsDefault) ?? world.Data.StartConditionDatas.FirstOrDefault();
+                string requested = RequestedStart();
+                StartConditionData start = (requested != null ? world.Data.StartConditionDatas.FirstOrDefault(s => s.Id == requested) : null)
+                    ?? world.Data.StartConditionDatas.FirstOrDefault(s => s.IsDefault) ?? world.Data.StartConditionDatas.FirstOrDefault();
                 // O mundo so guarda uma referencia (Id); os spawns de verdade estao no registro de dados.
                 if (start != null && DataCollection.TryGet<StartConditionData>(start.Id, out StartConditionData full) && full != null)
                 {
@@ -242,7 +259,7 @@ namespace LandingFromSpace
             DumpEffects(capsule);
             Check("capsula do jogador local espera a escolha", session.Local && capsule != null && session.Phase == ServerPilot.Phase.Choosing);
             Check("capsula parada (cinematica) e travada", capsule.RigidBody.isKinematic && capsule.IsLocked);
-            Check("kit inicial rastreado e reservado para esta capsula", Kit.IsClaimed && Kit.ClaimedBy == capsule.ReferenceId,
+            Check($"kit inicial rastreado e reservado para esta capsula ({Kit.LastSources})", Kit.IsClaimed && Kit.ClaimedBy == capsule.ReferenceId,
                 $"itens={Kit.Things.Count}");
             DynamicThing lander = FindLander();
             Check("lander faz parte do kit", lander != null);
