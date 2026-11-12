@@ -43,10 +43,25 @@ namespace LandingFromSpace
         public static ConfigEntry<float> CameraPitch;
         public static ConfigEntry<bool> EntryEffect;
 
+        /// <summary>Marca, no processo inteiro, qual copia do mod esta ativa (cada copia carregada tem estaticos proprios).</summary>
+        private const string OwnerKey = PluginGuid + ".owner";
+
         private void Awake()
         {
             Log = Logger;
             Instance = this;
+
+            // A copia da Workshop e a local podem ser carregadas juntas. Duas copias ativas abrem o mapa de novo no fim
+            // da descida (os ganchos de uma nao sabem o que a outra fez), entao so a primeira funciona.
+            string location = typeof(Plugin).Assembly.Location;
+            if (AppDomain.CurrentDomain.GetData(OwnerKey) is string owner && owner != location)
+            {
+                Log.LogError($"Another copy of {PluginName} is already loaded from '{owner}'. This copy ('{location}') does nothing. Enable only one of them (Workshop or local) in the mod list.");
+                enabled = false;
+                return;
+            }
+            AppDomain.CurrentDomain.SetData(OwnerKey, location);
+            Log.LogInfo($"{PluginName} {PluginVersion} active from '{location}'.");
 
             Enabled = Config.Bind("General", "Enabled", true,
                 "Host: lets players that have the mod choose on the world map where their landing capsule comes down. Client: accept the choice when the host offers it.");
