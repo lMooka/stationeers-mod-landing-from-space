@@ -127,6 +127,7 @@ namespace LandingFromSpace
             ServerPilot.Tick();
             MapPicker.Tick();
             SteerPilot.Tick();
+            ClientSync.Tick();
 #if SELFTEST
             SelfTest.Tick();
 #endif
