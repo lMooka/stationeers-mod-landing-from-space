@@ -43,6 +43,7 @@ namespace LandingFromSpace
             public float NextGroundSample;
             public Vector2 Velocity;
             public float Thrust;
+            public float FallSpeed;
             public Quaternion Upright = Quaternion.identity;
         }
 
@@ -210,6 +211,8 @@ namespace LandingFromSpace
             }
             else
             {
+                // Os pousos recentes e os landers vao antes, para o mapa do cliente ja abrir com eles.
+                Net.SendToClient(client, $"M|{LandingLog.Serialize()}");
                 Net.SendToClient(client, $"P|{session.CapsuleId}");
             }
         }
@@ -301,6 +304,7 @@ namespace LandingFromSpace
             session.NextGroundSample = 0f;
             session.Velocity = Vector2.zero;
             session.Thrust = ThrustIdle;
+            session.FallSpeed = Plugin.DescentSpeed.Value;
             session.Upright = Quaternion.Euler(0f, session.Capsule.Transform.eulerAngles.y, 0f);
             // Liga o fogo dos motores e o tremor da entrada, como na descida original.
             OnServer.Interact(session.Capsule.InteractActivate, 1);
@@ -340,7 +344,11 @@ namespace LandingFromSpace
                 session.NextGroundSample = Time.time + 0.25f;
                 session.GroundY = GroundHeight(position);
             }
-            float fall = session.Fast ? Plugin.FastDescentSpeed.Value : Plugin.DescentSpeed.Value;
+            // Shift muda a velocidade de queda aos poucos, nos dois sentidos (acelera e freia gradualmente).
+            float wanted = session.Fast ? Plugin.FastDescentSpeed.Value : Plugin.DescentSpeed.Value;
+            float ease = 1f - Mathf.Exp(-Mathf.Max(0.05f, Plugin.FallResponsiveness.Value) * dt);
+            session.FallSpeed = Mathf.Lerp(session.FallSpeed, wanted, ease);
+            float fall = session.FallSpeed;
             float floor = session.GroundY + Plugin.HoverHeight.Value;
             position.y = Mathf.Max(position.y - fall * dt, floor);
             transform.position = position;
@@ -429,6 +437,10 @@ namespace LandingFromSpace
             }
             Vector3 ground = SafeGroundPoint(capsule.Transform.position);
             LastDropPoint = ground;
+            if (session.Phase == Phase.Steering && session.Human != null && session.Human.ParentSlot?.Parent == capsule)
+            {
+                LandingLog.RecordLanding(ground, session.Human.DisplayName);
+            }
             Plugin.Log.LogInfo($"Capsule {session.CapsuleId} descends at ({ground.x:0}, {ground.z:0}) [{reason}].");
             Resume(capsule, ground);
         }

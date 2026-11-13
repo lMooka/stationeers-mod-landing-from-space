@@ -17,6 +17,7 @@ namespace LandingFromSpace
     ///
     /// Mensagens (campo Message, prefixo <see cref="Tag"/>):
     ///   H                     host e cliente se apresentam
+    ///   M|r,x,z,nome;l,x,z,nome  host: pousos recentes (r) e landers (l) para o mapa
     ///   P|capsula             host: escolha onde esta capsula vai cair
     ///   S|capsula             host: comecou a descida guiada (WASD desvia a capsula)
     ///   E|capsula             host: acabou (a capsula entrou no pouso final do jogo)
@@ -161,6 +162,9 @@ namespace LandingFromSpace
                     break;
                 case "S":
                     SteerPilot.BeginRemote(long.Parse(parts[1], CultureInfo.InvariantCulture));
+                    break;
+                case "M":
+                    LandingLog.ApplyRemote(parts.Length > 1 ? parts[1] : "");
                     break;
                 case "E":
                     MapPicker.Close(long.Parse(parts[1], CultureInfo.InvariantCulture));

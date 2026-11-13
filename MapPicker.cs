@@ -232,6 +232,46 @@ namespace LandingFromSpace
             return y + 48f;
         }
 
+        /// <summary>Lander no mapa: quadrado verde com "L".</summary>
+        private static void LanderIcon(Vector2 c)
+        {
+            Rect r = new Rect(c.x - 8f, c.y - 8f, 16f, 16f);
+            UiStyle.Fill(new Rect(r.x - 1f, r.y - 1f, r.width + 2f, r.height + 2f), new Color(0f, 0f, 0f, 0.6f));
+            UiStyle.Fill(r, UiStyle.Lander);
+            GUI.Label(r, "L", UiStyle.Label(11, UiStyle.AccentDark, TextAnchor.MiddleCenter, title: true));
+        }
+
+        /// <summary>Pouso recente no mapa: circulo claro numerado (1 = o mais recente).</summary>
+        private static void RecentIcon(Vector2 c, int number)
+        {
+            UiStyle.Dot(c, 18f, new Color(0f, 0f, 0f, 0.6f));
+            UiStyle.Dot(c, 15f, UiStyle.Recent);
+            GUI.Label(new Rect(c.x - 9f, c.y - 9f, 18f, 18f), number.ToString(), UiStyle.Label(10, UiStyle.AccentDark, TextAnchor.MiddleCenter, title: true));
+        }
+
+        /// <summary>Linha da lista: icone, coordenadas e jogador. Clicar marca o ponto como alvo.</summary>
+        private static float SiteRow(float x, float y, float width, LandingSite site, System.Action<Vector2> icon)
+        {
+            Rect row = new Rect(x - 4f, y, width + 8f, 22f);
+            bool selected = _selected.HasValue && Vector2.Distance(_selected.Value, site.Point) < 1f;
+            if (selected)
+            {
+                UiStyle.Fill(row, new Color(UiStyle.Accent.r, UiStyle.Accent.g, UiStyle.Accent.b, 0.18f));
+            }
+            else if (row.Contains(Event.current.mousePosition))
+            {
+                UiStyle.Fill(row, new Color(1f, 1f, 1f, 0.08f));
+            }
+            icon(new Vector2(x + 8f, y + 11f));
+            GUI.Label(new Rect(x + 24f, y, 110f, 22f), $"{site.X:0}, {site.Z:0}", UiStyle.Label(13, UiStyle.Text));
+            GUI.Label(new Rect(x + 130f, y, width - 130f, 22f), site.Player, UiStyle.Label(12, UiStyle.Muted, TextAnchor.MiddleRight));
+            if (GUI.Button(row, GUIContent.none, GUIStyle.none))
+            {
+                _selected = site.Point;
+            }
+            return y + 24f;
+        }
+
         private static float LegendRow(float x, float y, float width, string text, System.Action<Vector2> icon)
         {
             icon(new Vector2(x + 8f, y + 9f));
@@ -314,6 +354,24 @@ namespace LandingFromSpace
                     // Sem pontos de inicio no mapa: segue sem eles.
                 }
 
+                LandingFile sites = LandingLog.Current;
+                foreach (LandingSite lander in sites.Landers)
+                {
+                    Vector2 p = MarkerPoint(map, new Vector3(lander.X, 0f, lander.Z));
+                    if (map.Contains(p))
+                    {
+                        LanderIcon(p);
+                    }
+                }
+                for (int i = sites.Recent.Count - 1; i >= 0; i--)
+                {
+                    Vector2 p = MarkerPoint(map, new Vector3(sites.Recent[i].X, 0f, sites.Recent[i].Z));
+                    if (map.Contains(p))
+                    {
+                        RecentIcon(p, i + 1);
+                    }
+                }
+
                 Vector2 capsulePoint = MarkerPoint(map, _capsule.Transform.position);
                 if (map.Contains(capsulePoint))
                 {
@@ -376,6 +434,33 @@ namespace LandingFromSpace
                 y += 40f;
             }
 
+            LandingFile known = LandingLog.Current;
+            if (known.Recent.Count > 0 || known.Landers.Count > 0)
+            {
+                y += 4f;
+                UiStyle.Fill(new Rect(x, y, w2, 1f), UiStyle.Line);
+                y += 10f;
+                if (known.Landers.Count > 0)
+                {
+                    GUI.Label(new Rect(x, y, w2, 16f), "LANDER", UiStyle.Label(11, UiStyle.Muted));
+                    y += 18f;
+                    foreach (LandingSite lander in known.Landers)
+                    {
+                        y = SiteRow(x, y, w2, lander, c => LanderIcon(c));
+                    }
+                }
+                if (known.Recent.Count > 0)
+                {
+                    GUI.Label(new Rect(x, y + 2f, w2, 16f), "RECENT LANDING SITES", UiStyle.Label(11, UiStyle.Muted));
+                    y += 20f;
+                    for (int i = 0; i < known.Recent.Count; i++)
+                    {
+                        int number = i + 1;
+                        y = SiteRow(x, y, w2, known.Recent[i], c => RecentIcon(c, number));
+                    }
+                }
+            }
+
             y += 8f;
             UiStyle.Fill(new Rect(x, y, w2, 1f), UiStyle.Line);
             y += 12f;
@@ -384,6 +469,14 @@ namespace LandingFromSpace
             y = LegendRow(x, y, w2, "Your capsule", c => { UiStyle.Dot(c, 16f, new Color(UiStyle.Accent.r, UiStyle.Accent.g, UiStyle.Accent.b, 0.35f)); UiStyle.Dot(c, 8f, UiStyle.Accent); });
             y = LegendRow(x, y, w2, "World start point", c => UiStyle.Dot(c, 8f, UiStyle.Start));
             y = LegendRow(x, y, w2, "Target", c => UiStyle.Dot(c, 14f, UiStyle.Accent, ring: true));
+            if (known.Landers.Count > 0)
+            {
+                y = LegendRow(x, y, w2, "Lander", c => LanderIcon(c));
+            }
+            if (known.Recent.Count > 0)
+            {
+                y = LegendRow(x, y, w2, "Recent landing site", c => RecentIcon(c, 1));
+            }
             if (hasLava)
             {
                 y = LegendRow(x, y, w2, "Lava", c => UiStyle.Fill(new Rect(c.x - 6f, c.y - 6f, 12f, 12f), new Color(UiStyle.Lava.r, UiStyle.Lava.g, UiStyle.Lava.b, 0.75f)));
@@ -395,6 +488,9 @@ namespace LandingFromSpace
                 }
             }
 
+            bool roomForControls = y + 20f + 22f + 28f * 3f < column.yMax - 106f;
+            if (roomForControls)
+            {
             y += 8f;
             UiStyle.Fill(new Rect(x, y, w2, 1f), UiStyle.Line);
             y += 12f;
@@ -408,6 +504,7 @@ namespace LandingFromSpace
             y += 28f;
             cx = x + UiStyle.KeyChip(x, y, "ENTER") + 8f;
             GUI.Label(new Rect(cx, y, w2, 22f), "Land here", UiStyle.Label(13, UiStyle.Text));
+            }
 
             // Botoes no rodape da coluna.
             Rect land = new Rect(x, column.yMax - 96f, w2, 42f);

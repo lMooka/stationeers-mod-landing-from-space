@@ -315,6 +315,9 @@ namespace LandingFromSpace
                     yield return null;
                 }
                 Vector3 c0 = capsule.Transform.position;
+                LandingLog.RecordLanding(new Vector3(c0.x - 600f, 0f, c0.z + 300f), "Earlier");
+                LandingLog.RecordLanding(new Vector3(c0.x + 200f, 0f, c0.z - 500f), "Earlier");
+                LandingLog.RecordLander(new Vector3(c0.x - 590f, 0f, c0.z + 310f), "Earlier");
                 MapPicker.TestSelect(new Vector2(c0.x + 350f, c0.z + 250f));
                 yield return new WaitForEndOfFrame();
                 Shot("0_mapa_lava");
@@ -375,7 +378,15 @@ namespace LandingFromSpace
 
             // Acelera a queda para o teste nao demorar.
             SteerPilot.SimulatedFast = true;
-            yield return new WaitForSeconds(2f);
+            float fy0 = capsule.Transform.position.y;
+            yield return new WaitForSeconds(0.4f);
+            float early = (fy0 - capsule.Transform.position.y) / 0.4f;
+            Check("Shift acelera a queda aos poucos", early < (Plugin.DescentSpeed.Value + Plugin.FastDescentSpeed.Value) / 2f, $"velocidade logo depois={early:0.0} m/s");
+            yield return new WaitForSeconds(2.6f);
+            float fy1 = capsule.Transform.position.y;
+            yield return new WaitForSeconds(0.4f);
+            float later = (fy1 - capsule.Transform.position.y) / 0.4f;
+            Check("Shift chega perto da velocidade maxima", later > Plugin.FastDescentSpeed.Value * 0.8f, $"velocidade depois de 3 s={later:0.0} m/s");
             Check("chama diminui ao acelerar a queda", capsule.ControlledDescentLerp < idleThrust - 0.1f,
                 $"parada={idleThrust:0.00} queda rapida={capsule.ControlledDescentLerp:0.00}");
             yield return new WaitForSeconds(1.5f);
@@ -427,6 +438,9 @@ namespace LandingFromSpace
             Check("capsula pousou onde a descida guiada terminou (ou no chao seguro mais proximo)", Flat(landed, dropPoint) < 12f,
                 $"alvo=({target.x:0}, {target.y:0}) entregue=({dropPoint.x:0}, {dropPoint.z:0}) pouso={landed}");
             Check("capsula nao pousou na lava", !ServerPilot.IsLava(landed), $"pouso={landed}");
+            LandingSite newest = LandingLog.Current.Recent.FirstOrDefault();
+            Check("pouso registrado como o mais recente", newest != null && Vector2.Distance(newest.Point, new Vector2(dropPoint.x, dropPoint.z)) < 1f
+                && LandingLog.Current.Recent.Count <= LandingLog.MaxRecent, $"recentes={LandingLog.Current.Recent.Count}");
             float capsuleRadius = Kit.Footprint(capsule, out _);
             Check("capsula esta no chao", Mathf.Abs(landed.y - landedGround) < 8f, $"y={landed.y:0.0} chao={landedGround:0.0}");
 
@@ -451,6 +465,9 @@ namespace LandingFromSpace
             Dictionary<long, Vector3> at = kit.ToDictionary(t => t.ReferenceId, t => Kit.Landed.TryGetValue(t.ReferenceId, out Vector3 l) ? l : t.Transform.position);
             float drift = kit.Select(t => Flat(t.Transform.position, at[t.ReferenceId])).DefaultIfEmpty(0f).Max();
             Plugin.Log.LogInfo($"SELFTEST kit: maior deslocamento pela fisica depois do pouso={drift:0.0} m");
+            DynamicThing mainItem = kit.FirstOrDefault(t => t is Lander) ?? kit.FirstOrDefault();
+            Check("posicao do lander registrada", mainItem != null && LandingLog.Current.Landers.Any(l => Vector2.Distance(l.Point, new Vector2(at[mainItem.ReferenceId].x, at[mainItem.ReferenceId].z)) < 6f),
+                $"landers=[{string.Join(" ", LandingLog.Current.Landers.Select(l => $"({l.X:0},{l.Z:0})"))}]");
             Plugin.Log.LogInfo($"SELFTEST kit depois da queda: [{Describe(kit)}] capsula=({landed.x:0},{landed.z:0}) jogador={(pilot != null ? pilot.Transform.position.ToString() : "-")}");
             // Arranjo original do jogo: tamanho e menor distancia entre itens.
             Vector3 startCenter = Vector3.zero;

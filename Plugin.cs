@@ -37,6 +37,7 @@ namespace LandingFromSpace
         public static ConfigEntry<float> SteerSpeed;
         public static ConfigEntry<float> MaxTiltAngle;
         public static ConfigEntry<float> SteerResponsiveness;
+        public static ConfigEntry<float> FallResponsiveness;
         public static ConfigEntry<float> ClientReplySeconds;
         public static ConfigEntry<float> MouseSensitivity;
         public static ConfigEntry<float> CameraDistance;
@@ -80,6 +81,8 @@ namespace LandingFromSpace
             SteerSpeed = Config.Bind("Descent", "SteerSpeed", 15f, "Host: sideways speed when the player steers with WASD, in m/s.");
             MaxTiltAngle = Config.Bind("Descent", "MaxTiltAngle", 35f,
                 "Host: how far the capsule leans toward the direction it is moving at full sideways speed, in degrees (0 turns it off, at most 60).");
+            FallResponsiveness = Config.Bind("Descent", "FallResponsiveness", 0.8f,
+                "Host: how quickly the falling speed changes when the player presses or releases Shift. Lower is smoother (0.8 takes about 3 s to reach full speed).");
             SteerResponsiveness = Config.Bind("Descent", "SteerResponsiveness", 2.5f,
                 "Host: how quickly the capsule speeds up, slows down and leans when the player steers. Higher is snappier, lower is floatier.");
             MouseSensitivity = Config.Bind("Camera", "MouseSensitivity", 3f, "Client: mouse sensitivity of the outside camera during the guided descent.");
@@ -128,6 +131,7 @@ namespace LandingFromSpace
             MapPicker.Tick();
             SteerPilot.Tick();
             ClientSync.Tick();
+            LandingLog.Tick();
 #if SELFTEST
             SelfTest.Tick();
 #endif

@@ -19,6 +19,8 @@ namespace LandingFromSpace
         public static readonly Color Muted = new Color(0.60f, 0.65f, 0.70f, 1f);
         public static readonly Color Lava = new Color(1f, 0.32f, 0.10f, 1f);
         public static readonly Color Start = new Color(0.55f, 0.82f, 1f, 1f);
+        public static readonly Color Lander = new Color(0.45f, 0.90f, 0.45f, 1f);
+        public static readonly Color Recent = new Color(0.90f, 0.92f, 0.95f, 1f);
 
         private static Font _title;
         private static Font _body;

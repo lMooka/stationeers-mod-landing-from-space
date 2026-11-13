@@ -339,6 +339,14 @@ namespace LandingFromSpace
             }
             Vector3 center = tight ? PickTightCenter(landing, player, offsets, anchor) : PickCenter(landing, player, offsets, layoutRadius);
 
+            // Item principal do kit, que fica registrado para sempre no mapa: o lander, ou o maior item (caixa do brutal).
+            int main = things.FindIndex(t => t is Lander);
+            if (main < 0)
+            {
+                main = radii.IndexOf(radii.Max());
+            }
+            string owner = (object)human != null && human != null ? human.DisplayName : "";
+
             for (int i = 0; i < things.Count; i++)
             {
                 DynamicThing thing = things[i];
@@ -359,6 +367,10 @@ namespace LandingFromSpace
                 // Com varios itens, caem quase juntos, como uma chuva de destrocos.
                 float delay = things.Count == 1 ? 0f : UnityEngine.Random.Range(0f, 1.2f);
                 Plugin.Instance.StartCoroutine(FallFromSky(thing, safe, thing.Transform.rotation, delay));
+                if (i == main)
+                {
+                    LandingLog.RecordLander(safe + pivots[i], owner);
+                }
             }
             Plugin.Log.LogInfo($"Player left the capsule: starting kit falling around ({center.x:0}, {center.z:0}), {FlatDistance(center, landing):0} m from the capsule at ({landing.x:0}, {landing.z:0}): {things.Count} thing(s), layout radius {layoutRadius:0} m.");
         }
