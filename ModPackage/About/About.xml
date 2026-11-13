@@ -18,7 +18,7 @@
         [*][b]Mouse[/b] turns the camera.
         [/list]
         Each thruster flame follows the lean, and a re-entry shock wave of plasma wraps the heat shield while the capsule falls fast.
-        The last 100 m are the game's own landing.
+        The last 25 m are the game's own landing.
         [h2]Starting lander[/h2]
         On a new world, the lander (and the rest of the starting kit: the brutal crate and wreckage, oxygen tanks...) comes down from the sky next to the first player with the mod, as soon as they step out of the capsule. Community start conditions give each player their own lander, which follows that player's capsule. On worlds with lava it lands right next to the capsule. The lander rides down on the thrusters of its four top pods, with engine sound, until the fuel runs out: the flame sputters, the engine cuts out and it drops the last metres with a thud.
         [h2]Admin command[/h2]

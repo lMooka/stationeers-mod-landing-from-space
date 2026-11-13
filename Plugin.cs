@@ -72,7 +72,7 @@ namespace LandingFromSpace
                 "Host: the starting kit appears when that player leaves the capsule, at a random spot this far from the capsule (at least 9 m), away from the player. In meters.");
             KitFallHeight = Config.Bind("General", "KitFallHeight", 200f, "Host: the starting kit comes down from this height above the ground, in meters.");
             KitFallSeconds = Config.Bind("General", "KitFallSeconds", 8f, "Host: how long the starting kit takes to come down, in seconds.");
-            HoverHeight = Config.Bind("Descent", "FinalApproachHeight", 100f,
+            HoverHeight = Config.Bind("Descent", "FinalApproachHeight", 25f,
                 "Host: height above the ground where the guided descent ends and the game's own final landing (10 s, with fire and impact) takes over, in meters.");
             StartHeight = Config.Bind("Descent", "StartHeight", 500f,
                 "Host: height above the chosen point where the guided descent starts, in meters.");

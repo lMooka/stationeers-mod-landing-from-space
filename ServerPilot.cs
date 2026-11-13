@@ -226,6 +226,10 @@ namespace LandingFromSpace
             }
             if (groundPoint.HasValue)
             {
+                // A descida final do jogo sempre comeca KinematicStartHeight (100 m) acima do ponto no chao. Depois da
+                // descida guiada ela comeca da altura em que a capsula ja esta, sem pular para cima.
+                float above = capsule.Transform.position.y - groundPoint.Value.y;
+                capsule.KinematicStartHeight = Mathf.Clamp(above, 5f, 100f);
                 capsule.Transform.position = groundPoint.Value;
             }
             Bypass.Add(capsule.ReferenceId);

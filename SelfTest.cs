@@ -657,6 +657,16 @@ namespace LandingFromSpace
             Check("efeito de reentrada some perto do chao", ReentryFx.LastIntensity < 0.1f, $"intensidade={ReentryFx.LastIntensity:0.00}");
             Check("descida guiada entrega para o pouso final do jogo", !ServerPilot.Sessions.ContainsKey(capsule.ReferenceId) && !SteerPilot.Active);
             Check("capsula entregue em pe", Vector3.Angle(capsule.Transform.up, Vector3.up) < 2f, $"inclinacao={Vector3.Angle(capsule.Transform.up, Vector3.up):0.0}");
+            // O pouso final do jogo comeca da altura da entrega (FinalApproachHeight), sem pular para cima.
+            float handoverHeight = handover.y - ServerPilot.GroundHeight(handover);
+            float highest = capsule.Transform.position.y;
+            for (int f = 0; f < 30; f++)
+            {
+                highest = Mathf.Max(highest, capsule.Transform.position.y);
+                yield return null;
+            }
+            Check("pouso final comeca da altura da entrega, sem pular", highest <= handover.y + 3f && handoverHeight < Plugin.HoverHeight.Value + 5f,
+                $"entrega={handoverHeight:0.0} m acima do chao, subiu ate {highest - handover.y:+0.0;-0.0} m");
             target = new Vector2(handover.x, handover.z);
 
             deadline = Time.time + 40f;
