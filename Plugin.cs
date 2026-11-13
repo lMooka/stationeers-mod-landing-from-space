@@ -108,6 +108,14 @@ namespace LandingFromSpace
                 Patch(harmony, AccessTools.Method(typeof(NetworkMessages.Handshake), nameof(NetworkMessages.Handshake.Process)), prefix: nameof(Net.HandshakeProcessPrefix), owner: typeof(Net));
                 Patch(harmony, AccessTools.Method(typeof(NetworkServer), nameof(NetworkServer.Handshake)), postfix: nameof(Net.ServerHandshakePostfix), owner: typeof(Net));
                 Util.Commands.CommandLine.AddCommand(RespawnCommand.Key, new RespawnCommand());
+                // Para a resposta do comando voltar ao chat de quem usou "serverrun".
+                Type serverRun = AccessTools.TypeByName("Util.Commands.ServerRunCommandMessage");
+                if (serverRun != null)
+                {
+                    harmony.Patch(AccessTools.Method(serverRun, "Process"),
+                        prefix: new HarmonyMethod(typeof(RespawnCommand), nameof(RespawnCommand.ServerRunPrefix)),
+                        postfix: new HarmonyMethod(typeof(RespawnCommand), nameof(RespawnCommand.ServerRunPostfix)));
+                }
                 Log.LogInfo($"{PluginName} {PluginVersion} loaded.");
             }
             catch (Exception ex)

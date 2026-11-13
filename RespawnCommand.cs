@@ -24,7 +24,63 @@ namespace LandingFromSpace
 
         public override bool IsLaunchCmd => false;
 
+        /// <summary>
+        /// SteamID de quem mandou o comando por "serverrun" (preenchido por um gancho no processamento da mensagem),
+        /// para a resposta voltar a essa pessoa no chat. Sem isso ela so aparece no console do servidor.
+        /// </summary>
+        [ThreadStatic] public static ulong? Invoker;
+
+        public static void ServerRunPrefix(object __instance)
+        {
+            try
+            {
+                Invoker = HarmonyLib.Traverse.Create(__instance).Property("ClientId").GetValue<ulong>();
+            }
+            catch
+            {
+                Invoker = null;
+            }
+        }
+
+        public static void ServerRunPostfix()
+        {
+            Invoker = null;
+        }
+
         public override string Execute(string[] args)
+        {
+            string reply = Run(args);
+            if (Invoker.HasValue && !string.IsNullOrEmpty(reply))
+            {
+                Tell(Invoker.Value, reply == "Invalid syntax" ? "usage: respawn <player> | respawn list | respawn cancel <player>" : reply);
+            }
+            return reply;
+        }
+
+        /// <summary>Resposta no chat de quem usou serverrun (o jogo sem o mod mostra como mensagem do servidor).</summary>
+        private static void Tell(ulong clientId, string text)
+        {
+            try
+            {
+                Client client = Client.Find(clientId);
+                if (client == null || !NetworkManager.IsServer)
+                {
+                    return;
+                }
+                NetworkServer.SendToClient(new ChatMessage
+                {
+                    HumanId = -1L,
+                    DisplayName = "[respawn]",
+                    ChatText = text
+                }, NetworkChannel.GeneralTraffic, client);
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.LogWarning($"Could not send the respawn reply: {ex.Message}");
+            }
+        }
+
+        private static string Run(string[] args)
         {
             if (NetworkManager.IsClient)
             {
@@ -55,17 +111,17 @@ namespace LandingFromSpace
                 return LandingLog.CancelPending(query) ? $"'{query}' will no longer get a new lander." : $"'{query}' was not marked.";
             }
 
-            // Jogador conectado (nome, parte do nome ou SteamID); senao, guarda o nome para quando ele voltar.
-            List<Human> matches = FindPlayers(query);
+            // Jogador (nome, parte do nome ou SteamID). Os corpos de vidas anteriores continuam na lista de personagens
+            // com o mesmo nome e SteamID, entao a busca e por jogador (SteamID), nao por personagem.
+            List<KeyValuePair<ulong, string>> matches = FindPlayers(query);
             if (matches.Count > 1)
             {
-                return "more than one player matches: " + string.Join(", ", matches.Select(h => h.DisplayName)) + ". Use the full name or the SteamID.";
+                return "more than one player matches: " + string.Join(", ", matches.Select(m => $"{m.Value} ({m.Key})")) + ". Use the full name or the SteamID.";
             }
             if (matches.Count == 1)
             {
-                Human human = matches[0];
-                LandingLog.MarkPending(human.OwnerClientId, human.DisplayName);
-                return $"{human.DisplayName} will get the starting lander again on the next respawn.";
+                LandingLog.MarkPending(matches[0].Key, matches[0].Value);
+                return $"{matches[0].Value} will get the starting lander again on the next respawn.";
             }
             if (ulong.TryParse(query, out ulong steamId))
             {
@@ -76,21 +132,48 @@ namespace LandingFromSpace
             return $"'{query}' is not here now; they will get the starting lander on their next respawn (matched by name).";
         }
 
-        private static List<Human> FindPlayers(string query)
+        /// <summary>Jogadores conhecidos agora: clientes conectados e personagens (vivos ou corpos), um por SteamID.</summary>
+        private static Dictionary<ulong, string> KnownPlayers()
         {
-            List<Human> humans = Human.AllHumans.Where(h => h != null && h.OrganBrain != null && !string.IsNullOrEmpty(h.DisplayName)).ToList();
-            List<Human> exact = humans.Where(h => h.DisplayName.Equals(query, StringComparison.OrdinalIgnoreCase) || h.OwnerClientId.ToString() == query).ToList();
+            Dictionary<ulong, string> players = new Dictionary<ulong, string>();
+            foreach (Human human in Human.AllHumans)
+            {
+                if (human != null && human.OwnerClientId != 0 && !string.IsNullOrEmpty(human.DisplayName) && !players.ContainsKey(human.OwnerClientId))
+                {
+                    players[human.OwnerClientId] = human.DisplayName;
+                }
+            }
+            try
+            {
+                foreach (Client client in NetworkBase.Clients)
+                {
+                    if (client != null && client.ClientId != 0 && !string.IsNullOrEmpty(client.name))
+                    {
+                        players[client.ClientId] = client.name;
+                    }
+                }
+            }
+            catch
+            {
+                // Sem lista de clientes (singleplayer): ficam os personagens.
+            }
+            return players;
+        }
+
+        private static List<KeyValuePair<ulong, string>> FindPlayers(string query)
+        {
+            Dictionary<ulong, string> players = KnownPlayers();
+            List<KeyValuePair<ulong, string>> exact = players.Where(p => p.Value.Equals(query, StringComparison.OrdinalIgnoreCase) || p.Key.ToString() == query).ToList();
             if (exact.Count > 0)
             {
                 return exact;
             }
-            return humans.Where(h => h.DisplayName.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0).ToList();
+            return players.Where(p => p.Value.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0).ToList();
         }
 
         public override IEnumerable<string> GetCompletions(int argIndex, string prefix)
         {
-            return Human.AllHumans.Where(h => h != null && !string.IsNullOrEmpty(h.DisplayName))
-                .Select(h => h.DisplayName)
+            return KnownPlayers().Values
                 .Where(n => n.StartsWith(prefix ?? "", StringComparison.OrdinalIgnoreCase))
                 .Distinct();
         }

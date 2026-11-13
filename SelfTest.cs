@@ -395,8 +395,20 @@ namespace LandingFromSpace
                 Check("comando respawn: jogador local encontrado", false);
                 yield break;
             }
-            Util.Commands.CommandLine.Process($"respawn {me.DisplayName}");
-            Check("comando respawn marca o jogador", LandingLog.Pending.Any(p => p.Id == me.OwnerClientId), $"marcados=[{string.Join(", ", LandingLog.Pending.Select(p => p.Name))}]");
+            // Simula o corpo de uma vida anterior: o jogo deixa o personagem morto na lista, com o mesmo nome e SteamID.
+            Human.AllHumans.Add(me);
+            try
+            {
+                Util.Commands.CommandLine.Process($"respawn {me.OwnerClientId}");
+                Check("comando respawn pelo SteamID funciona mesmo com o corpo antigo na lista", LandingLog.Pending.Any(p => p.Id == me.OwnerClientId));
+                LandingLog.CancelPending(me.OwnerClientId.ToString());
+                Util.Commands.CommandLine.Process($"respawn {me.DisplayName}");
+            }
+            finally
+            {
+                Human.AllHumans.Remove(me);
+            }
+            Check("comando respawn pelo nome marca o jogador (com o corpo antigo na lista)", LandingLog.Pending.Any(p => p.Id == me.OwnerClientId), $"marcados=[{string.Join(", ", LandingLog.Pending.Select(p => p.Name))}]");
             int landersBefore = UnityEngine.Object.FindObjectsOfType<Lander>().Length;
             Kit.CreateCharacterPostfix(me, me.OwnerClientId, me.DisplayName, isRespawn: true);
             yield return null;
