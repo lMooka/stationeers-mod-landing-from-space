@@ -13,7 +13,7 @@ A Stationeers mod: choose where you land, then fly your landing capsule down fro
 
 ## Admin command
 
-`respawn <player>` gives that player the starting lander again on their next respawn (it lands next to their capsule). It only runs on the server: in the server console, or from a client as `serverrun respawn <player>`, which the game accepts only with the server's `ServerAuthSecret`. `respawn list` shows who is marked and `respawn cancel <player>` removes the mark. Marks are saved with the world, so they also work for players who are offline.
+`respawn <player>` resets that player on their next respawn: they come back with the new player equipment on the body (full suit, helmet, tanks and tools instead of the respawn kit) and get the starting lander again (it lands next to their capsule). It only runs on the server: in the server console, or from a client as `serverrun respawn <player>`, which the game accepts only with the server's `ServerAuthSecret`. `respawn list` shows who is marked and `respawn cancel <player>` removes the mark. Marks are saved with the world, so they also work for players who are offline.
 
 ## Multiplayer
 

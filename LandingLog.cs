@@ -156,9 +156,19 @@ namespace LandingFromSpace
         /// <summary>Se o jogador estava marcado, tira a marca e retorna true (pelo SteamID ou, sem ele, pelo nome).</summary>
         public static bool TakePending(ulong id, string name)
         {
-            int removed = _data.Pending.RemoveAll(p => (p.Id != 0 && p.Id == id) || (p.Id == 0 && string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase)));
+            int removed = _data.Pending.RemoveAll(p => IsMatch(p, id, name));
             _dirty |= removed > 0;
             return removed > 0;
+        }
+
+        public static bool IsPending(ulong id, string name)
+        {
+            return _data.Pending.Exists(p => IsMatch(p, id, name));
+        }
+
+        private static bool IsMatch(LandingPending p, ulong id, string name)
+        {
+            return (p.Id != 0 && p.Id == id) || (p.Id == 0 && string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
         }
 
         private static LandingSite Site(Vector3 point, string player)

@@ -409,10 +409,17 @@ namespace LandingFromSpace
                 Human.AllHumans.Remove(me);
             }
             Check("comando respawn pelo nome marca o jogador (com o corpo antigo na lista)", LandingLog.Pending.Any(p => p.Id == me.OwnerClientId), $"marcados=[{string.Join(", ", LandingLog.Pending.Select(p => p.Name))}]");
+            Kit.ExecutedSpawns.Clear();
+            WorldSetting.OnRespawnPlayerKit(me);
+            string loadout = string.Join(", ", Kit.ExecutedSpawns);
+            Check("no respawn o jogador marcado recebe o equipamento de jogador novo no corpo",
+                Kit.ExecutedSpawns.Any(id => id != null && id.IndexOf("NewPlayer", StringComparison.OrdinalIgnoreCase) >= 0)
+                && !Kit.ExecutedSpawns.Any(id => id != null && id.IndexOf("RespawnPlayer", StringComparison.OrdinalIgnoreCase) >= 0), $"spawns=[{loadout}]");
             int landersBefore = UnityEngine.Object.FindObjectsOfType<Lander>().Length;
             Kit.CreateCharacterPostfix(me, me.OwnerClientId, me.DisplayName, isRespawn: true);
             yield return null;
             int landersAfter = UnityEngine.Object.FindObjectsOfType<Lander>().Length;
+            Check("respawn marcado zera o estresse de respawn", me.RespawnStressTime <= 0f, $"stress={me.RespawnStressTime}");
             Check("no respawn o jogador marcado ganha um lander novo", landersAfter == landersBefore + 1 && !LandingLog.Pending.Any(p => p.Id == me.OwnerClientId),
                 $"landers {landersBefore} -> {landersAfter}");
         }

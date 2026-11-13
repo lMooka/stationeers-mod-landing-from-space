@@ -114,6 +114,9 @@ namespace LandingFromSpace
 
         public static void SpawnExecutePrefix(SpawnData __instance, Thing parent, Human player)
         {
+#if SELFTEST
+            if (parent is Human) ExecutedSpawns.Add(__instance?.Id);
+#endif
             try
             {
                 // Nao exige RunSimulation: durante a criacao do mundo ela pode ainda nao valer; so o host cria os kits.
@@ -207,6 +210,8 @@ namespace LandingFromSpace
                 {
                     return;
                 }
+                // Recomeco de jogador novo: sem o estresse de respawn (o equipamento ja veio de RespawnKitPrefix).
+                __result.RespawnStressTime = 0f;
                 StartConditionData start = WorldSetting.Current?.StartConditionData;
                 if (start?.Spawns == null)
                 {
@@ -252,6 +257,33 @@ namespace LandingFromSpace
                 Plugin.Log.LogError($"Could not give {steamName} a new lander: {ex}");
             }
         }
+
+        /// <summary>
+        /// Comando "respawn": o jogador marcado renasce com o equipamento de jogador novo no corpo (traje, capacete,
+        /// tanques e ferramentas completos) em vez do equipamento de respawn (que no Normal e o kit de emergencia).
+        /// </summary>
+        public static bool RespawnKitPrefix(Human player)
+        {
+            try
+            {
+                if (!GameManager.RunSimulation || (object)player == null || !LandingLog.IsPending(player.OwnerClientId, player.DisplayName))
+                {
+                    return true;
+                }
+                WorldSetting.OnNewPlayerKit(player);
+                Plugin.Log.LogInfo($"{player.DisplayName} respawns with the new player equipment.");
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.LogError($"Could not give {player?.DisplayName} the new player equipment: {ex}");
+                return true;
+            }
+        }
+
+#if SELFTEST
+        public static readonly List<string> ExecutedSpawns = new List<string>();
+#endif
 
         /// <summary>Enquanto o comando "respawn" cria um kit, os ganchos de rastreio nao mexem nele.</summary>
         private static bool _suppressTracking;

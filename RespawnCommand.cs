@@ -18,7 +18,7 @@ namespace LandingFromSpace
     {
         public const string Key = "respawn";
 
-        public override string HelpText => "Landing From Space: gives <player> the starting lander again on their next respawn. Server only (from a client: serverrun respawn <player>). 'respawn list' shows who is marked; 'respawn cancel <player>' removes the mark.";
+        public override string HelpText => "Landing From Space: on their next respawn, <player> comes back with the new player equipment and gets the starting lander again. Server only (from a client: serverrun respawn <player>). 'respawn list' shows who is marked; 'respawn cancel <player>' removes the mark.";
 
         public override string[] Arguments => new[] { "<player>|list|cancel <player>" };
 
@@ -121,7 +121,7 @@ namespace LandingFromSpace
             if (matches.Count == 1)
             {
                 LandingLog.MarkPending(matches[0].Key, matches[0].Value);
-                return $"{matches[0].Value} will get the starting lander again on the next respawn.";
+                return $"{matches[0].Value} will respawn with the new player equipment and the starting lander.";
             }
             if (ulong.TryParse(query, out ulong steamId))
             {
