@@ -117,7 +117,7 @@ namespace LandingFromSpace
             try
             {
                 // Nao exige RunSimulation: durante a criacao do mundo ela pode ainda nao valer; so o host cria os kits.
-                if (NetworkManager.IsClient)
+                if (NetworkManager.IsClient || _suppressTracking)
                 {
                     return;
                 }
@@ -189,6 +189,72 @@ namespace LandingFromSpace
                 Plugin.Log.LogWarning($"Kit tracking failed: {ex.Message}");
             }
         }
+
+        /// <summary>
+        /// Comando "respawn": o jogador acabou de renascer e estava marcado. Cria de novo os itens que a condicao de
+        /// inicio da fora da capsula (lander, caixa do brutal, tanques...) como kit desse jogador; a capsula dele leva
+        /// o kit (cai do ceu ao lado quando ele sair). Sem o mod no cliente, o kit fica onde o jogo colocou.
+        /// </summary>
+        public static void CreateCharacterPostfix(Human __result, ulong clientId, string steamName, bool isRespawn)
+        {
+            try
+            {
+                if (!GameManager.RunSimulation || !isRespawn || (object)__result == null)
+                {
+                    return;
+                }
+                if (!LandingLog.TakePending(clientId, steamName))
+                {
+                    return;
+                }
+                StartConditionData start = WorldSetting.Current?.StartConditionData;
+                if (start?.Spawns == null)
+                {
+                    Plugin.Log.LogWarning($"No start condition to give {steamName} a new lander.");
+                    return;
+                }
+                Entry entry = new Entry { Source = "respawn " + steamName };
+                foreach (SpawnData spawn in start.Spawns)
+                {
+                    if (spawn == null || (spawn.EventType != SpawnEvent.NewWorld && spawn.EventType != SpawnEvent.NewPlayer)
+                        || spawn.Id.IndexOf("Capsule", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        continue;
+                    }
+                    HashSet<long> before = new HashSet<long>(ThingSpawnData.PreSpawnedThingIds);
+                    _suppressTracking = true;
+                    try
+                    {
+                        spawn.Execute(null, __result);
+                    }
+                    finally
+                    {
+                        _suppressTracking = false;
+                    }
+                    foreach (long id in ThingSpawnData.PreSpawnedThingIds)
+                    {
+                        if (!before.Contains(id) && !(Thing.Find(id) is LanderCapsule) && !entry.Ids.Contains(id))
+                        {
+                            entry.Ids.Add(id);
+                        }
+                    }
+                }
+                if (entry.Ids.Count == 0)
+                {
+                    Plugin.Log.LogWarning($"The start condition gave nothing to respawn for {steamName}.");
+                    return;
+                }
+                PlayerKits[__result.ReferenceId] = entry;
+                Plugin.Log.LogInfo($"New starting kit for {steamName} on respawn: {entry.Ids.Count} thing(s).");
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.LogError($"Could not give {steamName} a new lander: {ex}");
+            }
+        }
+
+        /// <summary>Enquanto o comando "respawn" cria um kit, os ganchos de rastreio nao mexem nele.</summary>
+        private static bool _suppressTracking;
 
         /// <summary>
         /// A capsula de <paramref name="human"/> decidiu se vai ser pilotada. Reserva para ela o kit desse jogador e,
@@ -367,6 +433,10 @@ namespace LandingFromSpace
                 // Com varios itens, caem quase juntos, como uma chuva de destrocos.
                 float delay = things.Count == 1 ? 0f : UnityEngine.Random.Range(0f, 1.2f);
                 Plugin.Instance.StartCoroutine(FallFromSky(thing, safe, thing.Transform.rotation, delay));
+                // Chama, luz e som do retrofoguete (aqui e nos clientes com o mod).
+                float fallSeconds = Mathf.Max(1f, Plugin.KitFallSeconds.Value);
+                LanderFx.Play(thing, delay, fallSeconds);
+                Net.SendToModdedClients($"K|{thing.ReferenceId}|{delay.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)}|{fallSeconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)}");
                 if (i == main)
                 {
                     LandingLog.RecordLander(safe + pivots[i], owner);

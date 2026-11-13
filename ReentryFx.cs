@@ -77,6 +77,9 @@ namespace LandingFromSpace
         private static readonly Vector3 PlasmaShape = new Vector3(0.9f, 0.55f, 0.9f);
         private static readonly Vector3 PlasmaOffset = new Vector3(0f, -0.5f, 0f);
 
+        /// <summary>O fogo do motor de foguete do jogo, tambem usado na chama do lander.</summary>
+        public static ParticleSystem FireTemplateForLander() => FireTemplate();
+
         private static ParticleSystem FireTemplate()
         {
             if (_templateSearched)

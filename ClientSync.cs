@@ -23,8 +23,63 @@ namespace LandingFromSpace
         /// <summary>Somente para diagnostico: quantas capsulas estao seguindo o servidor agora.</summary>
         public static int ForcedCount => Forced.Count;
 
+        private static readonly Dictionary<DynamicThing, float> Following = new Dictionary<DynamicThing, float>();
+        private static readonly List<DynamicThing> FollowDone = new List<DynamicThing>();
+
+        /// <summary>Cliente: o item (lander caindo do ceu) segue so o servidor pelos proximos segundos.</summary>
+        public static void FollowServer(DynamicThing thing, float seconds)
+        {
+            if (thing == null || GameManager.RunSimulation)
+            {
+                return;
+            }
+            Following[thing] = Time.time + seconds + 0.5f;
+        }
+
+        private static void TickFollowing()
+        {
+            if (Following.Count == 0)
+            {
+                return;
+            }
+            FollowDone.Clear();
+            foreach (KeyValuePair<DynamicThing, float> pair in Following)
+            {
+                DynamicThing thing = pair.Key;
+                if (thing == null)
+                {
+                    FollowDone.Add(thing);
+                    continue;
+                }
+                Rigidbody body = thing.RigidBody;
+                if (Time.time < pair.Value)
+                {
+                    if (body != null)
+                    {
+                        body.isKinematic = true;
+                    }
+                    thing.IsForceKinematic = true;
+                }
+                else
+                {
+                    // Combustivel acabou no servidor: a fisica normal volta para a queda final e o pouso.
+                    thing.IsForceKinematic = false;
+                    if (body != null)
+                    {
+                        body.isKinematic = false;
+                    }
+                    FollowDone.Add(thing);
+                }
+            }
+            foreach (DynamicThing thing in FollowDone)
+            {
+                Following.Remove(thing);
+            }
+        }
+
         public static void Tick()
         {
+            TickFollowing();
             if (GameManager.RunSimulation || GameManager.GameState == GameState.None)
             {
                 // Host e singleplayer simulam a capsula de verdade.

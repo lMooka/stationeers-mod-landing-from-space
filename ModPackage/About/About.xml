@@ -20,7 +20,9 @@
         Each thruster flame follows the lean, and a re-entry shock wave of plasma wraps the heat shield while the capsule falls fast.
         The last 100 m are the game's own landing.
         [h2]Starting lander[/h2]
-        On a new world, the lander (and the rest of the starting kit: the brutal crate and wreckage, oxygen tanks...) comes down from the sky next to the first player with the mod, as soon as they step out of the capsule. Community start conditions give each player their own lander, which follows that player's capsule. On worlds with lava it lands right next to the capsule.
+        On a new world, the lander (and the rest of the starting kit: the brutal crate and wreckage, oxygen tanks...) comes down from the sky next to the first player with the mod, as soon as they step out of the capsule. Community start conditions give each player their own lander, which follows that player's capsule. On worlds with lava it lands right next to the capsule. The lander rides down on the thrusters of its four top pods, with engine sound, until the fuel runs out: the flame sputters, the engine cuts out and it drops the last metres with a thud.
+        [h2]Admin command[/h2]
+        [b]respawn <player>[/b] gives that player the starting lander again on their next respawn (it lands next to their capsule). Server only: run it in the server console, or from a client as [b]serverrun respawn <player>[/b] (needs the server's ServerAuthSecret). [b]respawn list[/b] shows who is marked, [b]respawn cancel <player>[/b] removes the mark.
         [h2]Multiplayer[/h2]
         The host needs the mod. Players that also have it get the map and the guided descent; players without it land the normal way.
         Thruster lean and re-entry effects are only drawn for players with the mod.

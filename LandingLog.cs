@@ -22,6 +22,13 @@ namespace LandingFromSpace
         public Vector2 Point => new Vector2(X, Z);
     }
 
+    /// <summary>Jogador marcado pelo comando "respawn" para receber o kit inicial de novo.</summary>
+    public sealed class LandingPending
+    {
+        [XmlAttribute] public ulong Id;
+        [XmlAttribute] public string Name = "";
+    }
+
     [XmlRoot("LandingFromSpace")]
     public sealed class LandingFile
     {
@@ -30,6 +37,9 @@ namespace LandingFromSpace
 
         [XmlArray("Landers"), XmlArrayItem("Lander")]
         public List<LandingSite> Landers = new List<LandingSite>();
+
+        [XmlArray("PendingLanders"), XmlArrayItem("Player")]
+        public List<LandingPending> Pending = new List<LandingPending>();
     }
 
     /// <summary>
@@ -90,7 +100,7 @@ namespace LandingFromSpace
             {
                 // Primeiro save de um mundo novo ou "salvar como": leva os registros junto.
                 _loadedName = name;
-                _dirty |= _data.Recent.Count > 0 || _data.Landers.Count > 0;
+                _dirty |= _data.Recent.Count > 0 || _data.Landers.Count > 0 || _data.Pending.Count > 0;
             }
             if (_dirty)
             {
@@ -123,6 +133,32 @@ namespace LandingFromSpace
             _data.Landers.Add(Site(point, player));
             _dirty = true;
             Plugin.Log.LogInfo($"Lander position recorded: ({point.x:0}, {point.z:0}) for {player}.");
+        }
+
+        /// <summary>Jogadores marcados para receber o kit inicial no proximo respawn.</summary>
+        public static List<LandingPending> Pending => _data.Pending;
+
+        public static void MarkPending(ulong id, string name)
+        {
+            _data.Pending.RemoveAll(p => (id != 0 && p.Id == id) || string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
+            _data.Pending.Add(new LandingPending { Id = id, Name = name ?? "" });
+            _dirty = true;
+            Plugin.Log.LogInfo($"{name} ({id}) marked for a new starting lander on the next respawn.");
+        }
+
+        public static bool CancelPending(string query)
+        {
+            int removed = _data.Pending.RemoveAll(p => p.Id.ToString() == query || (p.Name ?? "").IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0);
+            _dirty |= removed > 0;
+            return removed > 0;
+        }
+
+        /// <summary>Se o jogador estava marcado, tira a marca e retorna true (pelo SteamID ou, sem ele, pelo nome).</summary>
+        public static bool TakePending(ulong id, string name)
+        {
+            int removed = _data.Pending.RemoveAll(p => (p.Id != 0 && p.Id == id) || (p.Id == 0 && string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase)));
+            _dirty |= removed > 0;
+            return removed > 0;
         }
 
         private static LandingSite Site(Vector3 point, string player)
@@ -174,6 +210,7 @@ namespace LandingFromSpace
                     LandingFile file = (LandingFile)serializer.Deserialize(stream) ?? new LandingFile();
                     file.Recent ??= new List<LandingSite>();
                     file.Landers ??= new List<LandingSite>();
+                    file.Pending ??= new List<LandingPending>();
                     Plugin.Log.LogInfo($"{file.Recent.Count} recent landing site(s) and {file.Landers.Count} lander(s) loaded from {path}.");
                     return file;
                 }

@@ -149,6 +149,28 @@ namespace LandingFromSpace
             return string.Join(" ", things.Select(t => $"{t.DisplayName}@({t.Transform.position.x:0},{t.Transform.position.y:0},{t.Transform.position.z:0})"));
         }
 
+        /// <summary>Foto com uma camera temporaria a uns 22 m do objeto, de lado e um pouco acima.</summary>
+        private static IEnumerator ShotFrom(Thing target, string name, float lookHeight = -3f)
+        {
+            GameObject go = new GameObject("SelfTestCamera");
+            Camera camera = go.AddComponent<Camera>();
+            camera.depth = 100f;
+            camera.fieldOfView = 55f;
+            camera.nearClipPlane = 0.3f;
+            camera.farClipPlane = 4000f;
+            for (int i = 0; i < 3; i++)
+            {
+                if (target == null) break;
+                Vector3 center = target.Transform.position + Vector3.up * lookHeight;
+                go.transform.position = center + new Vector3(13f, 2f, -9f);
+                go.transform.LookAt(center);
+                yield return new WaitForEndOfFrame();
+            }
+            Shot(name);
+            yield return new WaitForEndOfFrame();
+            UnityEngine.Object.Destroy(go);
+        }
+
         private static void Shot(string name)
         {
             try
@@ -290,9 +312,209 @@ namespace LandingFromSpace
             }
         }
 
+        /// <summary>Sons, canais de volume e o modelo do lander (para os efeitos da queda do lander).</summary>
+        private static void DumpAudioAndLander()
+        {
+            try
+            {
+                string[] keys = { "rocket", "thrust", "engine", "jet", "capsule", "lander", "burn", "fire", "flame", "exhaust", "fuel", "sputter", "ignit", "boost", "descen", "retro", "hiss", "impact", "thud", "land", "shuttle", "vent", "gas" };
+                foreach (AudioClip clip in Resources.FindObjectsOfTypeAll<AudioClip>())
+                {
+                    if (clip == null) continue;
+                    string low = clip.name.ToLowerInvariant();
+                    if (keys.Any(k => low.Contains(k)))
+                    {
+                        Plugin.Log.LogInfo($"SELFTEST AUDIO clip {clip.name} len={clip.length:0.0}s");
+                    }
+                }
+                foreach (UnityEngine.Audio.AudioMixerGroup group in Resources.FindObjectsOfTypeAll<UnityEngine.Audio.AudioMixerGroup>())
+                {
+                    if (group != null) Plugin.Log.LogInfo($"SELFTEST AUDIO mixer {group.audioMixer?.name}/{group.name}");
+                }
+                LanderCapsule capsule = ServerPilot.Sessions.Values.FirstOrDefault()?.Capsule;
+                if (capsule != null)
+                {
+                    foreach (AudioSource source in capsule.GetComponentsInChildren<AudioSource>(true))
+                    {
+                        Plugin.Log.LogInfo($"SELFTEST AUDIO capsule source {TPath(source.transform, capsule.Transform)} clip={source.clip?.name ?? "-"} mixer={source.outputAudioMixerGroup?.name ?? "-"} spatial={source.spatialBlend:0.0}");
+                    }
+                }
+                Lander lander = Kit.Things.Select(id => Thing.Find(id)).OfType<Lander>().FirstOrDefault();
+                if (lander != null)
+                {
+                    foreach (Transform t in lander.GetComponentsInChildren<Transform>(true))
+                    {
+                        if (t.GetComponentInParent<Thing>() != lander) continue;
+                        string comps = string.Join(",", t.GetComponents<Component>().Where(c => c != null && !(c is Transform)).Select(c => c.GetType().Name));
+                        Vector3 local = lander.Transform.InverseTransformPoint(t.position);
+                        Plugin.Log.LogInfo($"SELFTEST LANDER {TPath(t, lander.Transform)} local=({local.x:0.0},{local.y:0.0},{local.z:0.0}) [{comps}]");
+                    }
+                    Plugin.Log.LogInfo($"SELFTEST LANDER footprint={Kit.Footprint(lander, out Vector3 pivot):0.0} pivot={pivot}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.LogWarning($"SELFTEST audio dump failed: {ex}");
+            }
+        }
+
+        /// <summary>Pecas de efeito das naves dos comerciantes (para usar o propulsor delas no lander).</summary>
+        private static void DumpShuttles()
+        {
+            try
+            {
+                string[] keys = { "thrust", "engine", "exhaust", "flame", "jet", "burn", "nozzle", "fire", "rcs", "booster", "glow" };
+                HashSet<string> seen = new HashSet<string>();
+                foreach (Transform t in Resources.FindObjectsOfTypeAll<Transform>())
+                {
+                    if (t == null || t.root == null) continue;
+                    string root = t.root.name;
+                    if (root.IndexOf("Shuttle", StringComparison.OrdinalIgnoreCase) < 0 && root.IndexOf("CargoPlane", StringComparison.OrdinalIgnoreCase) < 0 && root.IndexOf("Trader", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                    string low = t.name.ToLowerInvariant();
+                    if (!keys.Any(k => low.Contains(k))) continue;
+                    string path = TPath(t, t.root);
+                    if (!seen.Add(path)) continue;
+                    string comps = string.Join(",", t.GetComponents<Component>().Where(c => c != null && !(c is Transform)).Select(c => c.GetType().Name));
+                    string mats = "";
+                    Renderer r = t.GetComponent<Renderer>();
+                    if (r != null) mats = " mats=" + string.Join(",", r.sharedMaterials.Where(m => m != null).Select(m => m.name + "<" + (m.shader != null ? m.shader.name : "?") + ">"));
+                    Plugin.Log.LogInfo($"SELFTEST SHUTTLE {path} scene={(t.gameObject.scene.IsValid() ? t.gameObject.scene.name : "asset")} scale={t.lossyScale} [{comps}]{mats}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.LogWarning($"SELFTEST shuttle dump failed: {ex}");
+            }
+        }
+
+        private static IEnumerator TestRespawnCommand()
+        {
+            Human me = Human.LocalHuman ?? Human.AllHumans.FirstOrDefault(h => h != null && h.OrganBrain != null);
+            if (me == null)
+            {
+                Check("comando respawn: jogador local encontrado", false);
+                yield break;
+            }
+            Util.Commands.CommandLine.Process($"respawn {me.DisplayName}");
+            Check("comando respawn marca o jogador", LandingLog.Pending.Any(p => p.Id == me.OwnerClientId), $"marcados=[{string.Join(", ", LandingLog.Pending.Select(p => p.Name))}]");
+            int landersBefore = UnityEngine.Object.FindObjectsOfType<Lander>().Length;
+            Kit.CreateCharacterPostfix(me, me.OwnerClientId, me.DisplayName, isRespawn: true);
+            yield return null;
+            int landersAfter = UnityEngine.Object.FindObjectsOfType<Lander>().Length;
+            Check("no respawn o jogador marcado ganha um lander novo", landersAfter == landersBefore + 1 && !LandingLog.Pending.Any(p => p.Id == me.OwnerClientId),
+                $"landers {landersBefore} -> {landersAfter}");
+        }
+
+        /// <summary>Partes da chama copiada da nave e fotos de perto do topo do lander, com marcadores nos bicos.</summary>
+        private static IEnumerator InspectLanderTop()
+        {
+            try
+            {
+                foreach (Thruster thruster in Resources.FindObjectsOfTypeAll<Thruster>())
+                {
+                    if (thruster == null || thruster.name != "ThrusterMain_L" || thruster.transform.root.name != "LargeShuttle") continue;
+                    foreach (Transform t in thruster.GetComponentsInChildren<Transform>(true))
+                    {
+                        MeshFilter mf = t.GetComponent<MeshFilter>();
+                        string mesh = mf != null && mf.sharedMesh != null ? $"{mf.sharedMesh.name} v={mf.sharedMesh.vertexCount} sub={mf.sharedMesh.subMeshCount} bounds={mf.sharedMesh.bounds}" : "-";
+                        Plugin.Log.LogInfo($"SELFTEST NOZZLE template {TPath(t, thruster.transform)} localPos={t.localPosition} localRot={t.localEulerAngles} localScale={t.localScale} mesh={mesh} axis={thruster.Axis} visual={thruster.VisualScale}");
+                    }
+                    break;
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.LogWarning($"SELFTEST nozzle dump failed: {ex.Message}");
+            }
+            Lander lander = Kit.Things.Select(id => Thing.Find(id)).OfType<Lander>().FirstOrDefault();
+            if (lander == null)
+            {
+                yield break;
+            }
+            // Perfil do casco: em cada direcao (5 graus) e altura (0,1 m), o raio maximo da malha. Os pods aparecem
+            // como picos de raio numa faixa de altura.
+            try
+            {
+                const int angles = 72;
+                const float step = 0.1f;
+                float topY = float.MinValue;
+                Dictionary<int, float[]> radius = new Dictionary<int, float[]>();
+                foreach (MeshFilter filter in lander.GetComponentsInChildren<MeshFilter>())
+                {
+                    if (filter == null || filter.sharedMesh == null || filter.GetComponentInParent<Thing>() != lander || !filter.sharedMesh.isReadable) continue;
+                    Vector3[] vertices = filter.sharedMesh.vertices;
+                    foreach (Vector3 v in vertices)
+                    {
+                        Vector3 local = lander.Transform.InverseTransformPoint(filter.transform.TransformPoint(v));
+                        topY = Mathf.Max(topY, local.y);
+                        int band = Mathf.FloorToInt(local.y / step);
+                        float a = Mathf.Atan2(local.z, local.x) * Mathf.Rad2Deg;
+                        int bin = ((Mathf.RoundToInt(a / 5f) % angles) + angles) % angles;
+                        if (!radius.TryGetValue(band, out float[] row)) { row = new float[angles]; radius[band] = row; }
+                        row[bin] = Mathf.Max(row[bin], new Vector2(local.x, local.z).magnitude);
+                    }
+                }
+                Plugin.Log.LogInfo($"SELFTEST HULL top={topY:0.00}");
+                foreach (int band in radius.Keys.OrderBy(b => b))
+                {
+                    if (band * step < 2.5f) continue;
+                    float[] row = radius[band];
+                    Plugin.Log.LogInfo($"SELFTEST HULL y={band * step:0.0} r=[{string.Join(" ", row.Select(r => r.ToString("0.00")))}]");
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.LogWarning($"SELFTEST hull scan failed: {ex.Message}");
+            }
+
+            // Marcadores vermelhos nas posicoes atuais dos bicos.
+            List<GameObject> markers = new List<GameObject>();
+            foreach (Vector3 point in LanderFx.DebugNozzlePoints)
+            {
+                GameObject cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                UnityEngine.Object.Destroy(cube.GetComponent<Collider>());
+                cube.transform.SetParent(lander.Transform, false);
+                cube.transform.localPosition = point;
+                cube.transform.localScale = Vector3.one * 0.09f;
+                Renderer r = cube.GetComponent<Renderer>();
+                r.material = new Material(Shader.Find("Legacy Shaders/Particles/Additive"));
+                r.material.SetColor("_TintColor", Color.red);
+                markers.Add(cube);
+            }
+            GameObject go = new GameObject("SelfTestTopCamera");
+            Camera camera = go.AddComponent<Camera>();
+            camera.depth = 100f;
+            camera.fieldOfView = 40f;
+            camera.nearClipPlane = 0.05f;
+            Light light = go.AddComponent<Light>();
+            light.type = LightType.Spot;
+            light.range = 30f;
+            light.spotAngle = 60f;
+            light.intensity = 0.6f;
+            string[] names = { "6_quina_a", "7_quina_b", "8_quina_c", "9_quina_d" };
+            for (int i = 0; i < names.Length; i++)
+            {
+                // Cada quina diagonal vista de fora e de baixo, como na foto de referencia.
+                Vector3 top = lander.Transform.TransformPoint(Quaternion.Euler(0f, 45f + i * 90f, 0f) * Vector3.forward * 1.5f + Vector3.up * 5.0f);
+                Vector3 offset = Quaternion.Euler(0f, 45f + i * 90f, 0f) * new Vector3(0f, -2.2f, 3.6f);
+                for (int f = 0; f < 3; f++)
+                {
+                    go.transform.position = top + lander.Transform.rotation * offset;
+                    go.transform.LookAt(top);
+                    yield return new WaitForEndOfFrame();
+                }
+                Shot(names[i]);
+                yield return new WaitForEndOfFrame();
+            }
+            UnityEngine.Object.Destroy(go);
+            foreach (GameObject marker in markers) UnityEngine.Object.Destroy(marker);
+        }
+
         private static IEnumerator Run()
         {
             DumpFonts();
+            DumpShuttles();
+            DumpAudioAndLander();
             ServerPilot.Session session = ServerPilot.Sessions.Values.First();
             LanderCapsule capsule = session.Capsule;
             DumpEffects(capsule);
@@ -457,8 +679,22 @@ namespace LandingFromSpace
             kit = KitRoots();
             Check("kit vem caindo do ceu", kit.Any(t => t.Transform.position.y - ServerPilot.GroundHeight(t.Transform.position) > 30f
                 && Flat(t.Transform.position, landed) < Plugin.KitRadius.Value + 6f), $"[{Describe(kit)}]");
+            DynamicThing fallingLander = kit.FirstOrDefault(t => t is Lander);
+            if (fallingLander != null)
+            {
+                Check("lander desce com retrofoguete ligado", LanderFx.Played > 0 && LanderFx.LastBurning, $"efeitos={LanderFx.Played}");
+                yield return ShotFrom(fallingLander, "4_lander_queimando", 3f);
+                // Combustivel acabando (engasgo) perto do fim da queda.
+                yield return new WaitForSeconds(Mathf.Max(0f, Plugin.KitFallSeconds.Value - 2.5f - 0.6f));
+                yield return ShotFrom(fallingLander, "5_lander_engasgando", 3f);
+            }
             // Cada item comeca a cair 1,5 s depois do anterior.
-            yield return new WaitForSeconds(Plugin.KitFallSeconds.Value + 3f + 1.5f * Mathf.Max(0, kit.Count - 1));
+            yield return new WaitForSeconds(Plugin.KitFallSeconds.Value + 3f + 1.5f * Mathf.Max(0, kit.Count - 1) - (fallingLander != null ? Plugin.KitFallSeconds.Value - 2.5f : 0f));
+            if (fallingLander != null)
+            {
+                Check("combustivel acaba: chama e motor desligam no fim", LanderFx.LastCutOff && !LanderFx.LastBurning);
+                Check("som de impacto quando o lander bate no chao", LanderFx.LastImpact);
+            }
 
             kit = KitRoots();
             // Posicoes no pouso de cada item (a fisica pode mover depois, ex.: tanque rolando numa encosta).
@@ -506,6 +742,9 @@ namespace LandingFromSpace
                     }
                 Check("kit mantem o arranjo original", worst < 3f, $"maior diferenca de distancia entre itens={worst:0.0} m");
             }
+
+            yield return InspectLanderTop();
+            yield return TestRespawnCommand();
         }
     }
 }

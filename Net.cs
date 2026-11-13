@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using Assets.Scripts;
 using Assets.Scripts.Networking;
+using Assets.Scripts.Objects;
 using UnityEngine;
 
 namespace LandingFromSpace
@@ -18,6 +19,7 @@ namespace LandingFromSpace
     /// Mensagens (campo Message, prefixo <see cref="Tag"/>):
     ///   H                     host e cliente se apresentam
     ///   M|r,x,z,nome;l,x,z,nome  host: pousos recentes (r) e landers (l) para o mapa
+    ///   K|item|atraso|duracao host: o lander comeca a cair do ceu (efeitos e seguir o servidor)
     ///   P|capsula             host: escolha onde esta capsula vai cair
     ///   S|capsula             host: comecou a descida guiada (WASD desvia a capsula)
     ///   E|capsula             host: acabou (a capsula entrou no pouso final do jogo)
@@ -51,6 +53,23 @@ namespace LandingFromSpace
                 LoadingProgress = 0,
                 Message = Tag + body
             };
+        }
+
+        /// <summary>Host: envia para todos os clientes que responderam que tem o mod.</summary>
+        public static void SendToModdedClients(string body)
+        {
+            if (!NetworkManager.IsServer)
+            {
+                return;
+            }
+            foreach (ulong id in ModdedClients)
+            {
+                Client client = Client.Find(id);
+                if (client != null)
+                {
+                    SendToClient(client, body);
+                }
+            }
         }
 
         public static void SendToClient(Client client, string body)
@@ -162,6 +181,19 @@ namespace LandingFromSpace
                     break;
                 case "S":
                     SteerPilot.BeginRemote(long.Parse(parts[1], CultureInfo.InvariantCulture));
+                    break;
+                case "K":
+                    if (parts.Length >= 4)
+                    {
+                        DynamicThing falling = Thing.Find(long.Parse(parts[1], CultureInfo.InvariantCulture)) as DynamicThing;
+                        float delay = ParseNum(parts[2]);
+                        float duration = ParseNum(parts[3]);
+                        if (falling != null)
+                        {
+                            ClientSync.FollowServer(falling, delay + duration);
+                            LanderFx.Play(falling, delay, duration);
+                        }
+                    }
                     break;
                 case "M":
                     LandingLog.ApplyRemote(parts.Length > 1 ? parts[1] : "");

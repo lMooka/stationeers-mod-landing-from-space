@@ -9,7 +9,11 @@ A Stationeers mod: choose where you land, then fly your landing capsule down fro
 - **Choose the spot.** When your capsule spawns, the world map opens. Click where you want to land and press **Land here** (or Enter). **Default spot** lands the normal way. Works on every spawn, including respawns. On worlds with lava, lava is marked in red and the capsule never lands on it or on a slope next to it. The map also shows the last 5 landing sites and where each lander came down (saved with the world in `LandingFromSpace.xml`); click one in the list to aim there again.
 - **Guided descent.** The capsule starts 500 m above the point and comes down slowly, seen from an outside camera. **WASD** steers it (the capsule leans with its heat shield facing where it goes), **Shift** falls faster (speeding up and slowing down gradually), the **mouse** turns the camera. The last 100 m are the game's own landing.
 - **Thrusters and re-entry.** Each thruster flame follows the lean, and a re-entry shock wave of plasma wraps the heat shield while the capsule falls fast.
-- **Starting kit.** On a new world, the lander (or the brutal crate, wreckage and tanks) comes down from the sky next to the first player with the mod, as soon as they step out of the capsule. Community start conditions give each player their own lander, which follows that player's capsule. On worlds with lava it lands right next to the capsule.
+- **Starting kit.** On a new world, the lander (or the brutal crate, wreckage and tanks) comes down from the sky next to the first player with the mod, as soon as they step out of the capsule. Community start conditions give each player their own lander, which follows that player's capsule. On worlds with lava it lands right next to the capsule. The lander rides down on the thrusters of its four top pods, with engine sound, until the fuel runs out: the flame sputters, the engine cuts out and it drops the last metres with a thud.
+
+## Admin command
+
+`respawn <player>` gives that player the starting lander again on their next respawn (it lands next to their capsule). It only runs on the server: in the server console, or from a client as `serverrun respawn <player>`, which the game accepts only with the server's `ServerAuthSecret`. `respawn list` shows who is marked and `respawn cancel <player>` removes the mark. Marks are saved with the world, so they also work for players who are offline.
 
 ## Multiplayer
 

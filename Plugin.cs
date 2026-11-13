@@ -101,11 +101,13 @@ namespace LandingFromSpace
                 Patch(harmony, AccessTools.Method(typeof(LanderCapsule), "TerminateDescent"), postfix: nameof(Kit.TerminateDescentPostfix), owner: typeof(Kit));
                 Patch(harmony, AccessTools.Method(typeof(LanderCapsule), nameof(LanderCapsule.SerializeSave)), postfix: nameof(ServerPilot.SerializeSavePostfix), owner: typeof(ServerPilot));
                 Patch(harmony, AccessTools.Method(typeof(EntryEffects), nameof(EntryEffects.SetIntensity)), postfix: nameof(ThrusterFx.SetIntensityPostfix), owner: typeof(ThrusterFx));
+                Patch(harmony, AccessTools.Method(typeof(Assets.Scripts.Objects.Entities.Human), nameof(Assets.Scripts.Objects.Entities.Human.CreateCharacter)), postfix: nameof(Kit.CreateCharacterPostfix), owner: typeof(Kit));
                 Patch(harmony, AccessTools.Method(typeof(WorldSetting), nameof(WorldSetting.SpawnOnNewWorld)), prefix: nameof(Kit.SpawnOnNewWorldPrefix), owner: typeof(Kit));
                 Patch(harmony, AccessTools.Method(typeof(SpawnData), nameof(SpawnData.Execute), new[] { typeof(Thing), typeof(Assets.Scripts.Objects.Entities.Human) }),
                     prefix: nameof(Kit.SpawnExecutePrefix), postfix: nameof(Kit.SpawnExecutePostfix), owner: typeof(Kit));
                 Patch(harmony, AccessTools.Method(typeof(NetworkMessages.Handshake), nameof(NetworkMessages.Handshake.Process)), prefix: nameof(Net.HandshakeProcessPrefix), owner: typeof(Net));
                 Patch(harmony, AccessTools.Method(typeof(NetworkServer), nameof(NetworkServer.Handshake)), postfix: nameof(Net.ServerHandshakePostfix), owner: typeof(Net));
+                Util.Commands.CommandLine.AddCommand(RespawnCommand.Key, new RespawnCommand());
                 Log.LogInfo($"{PluginName} {PluginVersion} loaded.");
             }
             catch (Exception ex)
