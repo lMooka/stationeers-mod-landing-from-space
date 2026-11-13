@@ -9,7 +9,9 @@
         When your capsule spawns, the world map opens: click where you want to land and press [b]Land here[/b] (or Enter).
         [b]Default spot[/b] lands the normal way. Works on every spawn, including respawns.
         On worlds with lava (Vulcan), lava is marked in red on the map, and a capsule aimed at lava or a slope next to it is moved to the nearest safe flat ground.
-        The map remembers the last 5 landing sites and where each lander came down; click one in the list to aim there again (handy for respawns near your base).
+        The map remembers your last 5 landing sites and where your landers came down (each player only sees their own); click one in the list to aim there again (handy for respawns near your base).
+        [h2]World map[/h2]
+        Outside the capsule, [b]M[/b] opens the same map just to look: where you are, lava, your landing sites and landers. Nothing can be chosen there. [b]M[/b] or [b]Esc[/b] closes it (the key can be changed in the options).
         [h2]Guided descent[/h2]
         The capsule starts 500 m above the point and comes down slowly, seen from an outside camera.
         [list]

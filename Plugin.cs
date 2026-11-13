@@ -43,6 +43,7 @@ namespace LandingFromSpace
         public static ConfigEntry<float> CameraDistance;
         public static ConfigEntry<float> CameraPitch;
         public static ConfigEntry<bool> EntryEffect;
+        public static ConfigEntry<UnityEngine.KeyCode> MapKey;
 
         /// <summary>Marca, no processo inteiro, qual copia do mod esta ativa (cada copia carregada tem estaticos proprios).</summary>
         private const string OwnerKey = PluginGuid + ".owner";
@@ -91,6 +92,8 @@ namespace LandingFromSpace
                 "Client: show the atmospheric entry effect (plasma glow and fire under the capsule) during the guided descent.");
             CameraPitch = Config.Bind("Camera", "CameraPitch", 65f,
                 "Client: starting angle of the outside camera below the horizon, in degrees (0 is the horizon, 89 looks straight down). The mouse adjusts it within that range.");
+            MapKey = Config.Bind("Map", "MapKey", UnityEngine.KeyCode.M,
+                "Client: key that opens the world map to look at it (your position, landing sites and landers; no actions). None turns it off.");
             ClientReplySeconds = Config.Bind("Network", "ClientReplySeconds", 3f,
                 "Host: how long a joining player's capsule waits for the player's game to answer that it has the mod. Players without the mod descend after this delay.");
 

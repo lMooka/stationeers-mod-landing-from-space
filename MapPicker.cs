@@ -13,6 +13,7 @@ namespace LandingFromSpace
     /// <summary>
     /// Tela do mapa para quem esta dentro da capsula (host ou cliente com o mod): clique no mapa do mundo
     /// e confirme. Usa a mesma imagem e a mesma conversao de coordenadas do minimapa do jogo.
+    /// Fora da capsula, a tecla do mapa (M) abre a mesma tela so para olhar: sem alvo, lista ou botoes.
     /// </summary>
     public static class MapPicker
     {
@@ -27,6 +28,13 @@ namespace LandingFromSpace
         private static Vector2? _selected;
         private static Vector2? _hover;
         private static bool _inputTaken;
+
+        /// <summary>Mapa aberto pela tecla, so para olhar.</summary>
+        private static bool _viewer;
+
+        public static bool IsViewing => _viewer;
+
+        private static bool _escReleased;
 
 
         public static bool IsOpen => _capsuleId != 0;
@@ -63,6 +71,7 @@ namespace LandingFromSpace
             _sent = false;
             _selected = null;
             _hover = null;
+            _viewer = false;
             TakeInput();
             LavaMap.EnsureStarted();
             Plugin.Log.LogInfo($"Choosing landing point for capsule {_capsuleId}.");
@@ -142,8 +151,88 @@ namespace LandingFromSpace
             }
         }
 
+        /// <summary>Abre ou fecha o mapa so para olhar (tecla do mapa).</summary>
+        public static void ToggleViewer()
+        {
+            if (_viewer)
+            {
+                CloseViewer();
+                return;
+            }
+            if (_capsuleId != 0 || SteerPilot.Active || GameManager.GameState != GameState.Running)
+            {
+                Plugin.Log.LogInfo($"World map not opened: choosing={_capsuleId != 0} steering={SteerPilot.Active} state={GameManager.GameState}.");
+                return;
+            }
+            _viewer = true;
+            _hover = null;
+            TakeInput();
+            LavaMap.EnsureStarted();
+        }
+
+        private static void CloseViewer()
+        {
+            if (!_viewer)
+            {
+                return;
+            }
+            _viewer = false;
+            _hover = null;
+            ReleaseInput();
+        }
+
+        /// <summary>A tecla do mapa so abre com o jogador controlando o personagem (sem chat, console ou outra tela).</summary>
+        private static bool CanOpenViewer()
+        {
+            Assets.Scripts.Objects.Entities.Human me = Assets.Scripts.Objects.Entities.Human.LocalHuman;
+            return (object)me != null && me != null && !me.IsDead && KeyManager.InputState == KeyInputState.Game
+                && Cursor.lockState == CursorLockMode.Locked && !ConsoleWindow.IsOpen;
+        }
+
+        private static void TickViewer()
+        {
+            KeyCode key = Plugin.MapKey.Value;
+            if (_viewer)
+            {
+                Assets.Scripts.Objects.Entities.Human me = Assets.Scripts.Objects.Entities.Human.LocalHuman;
+                if (GameManager.GameState != GameState.Running || (object)me == null || me == null || me.IsDead || SteerPilot.Active)
+                {
+                    Plugin.Log.LogInfo($"World map closed: state={GameManager.GameState} player={((object)me != null && me != null)} dead={((object)me != null && me != null && me.IsDead)} steering={SteerPilot.Active}.");
+                    CloseViewer();
+                    return;
+                }
+                Cursor.visible = true;
+                Cursor.lockState = CursorLockMode.None;
+                // Esc fecha um quadro depois de solto: no mesmo quadro o jogo (de volta ao modo normal) abriria o menu de pausa.
+                if (_escReleased)
+                {
+                    _escReleased = false;
+                    CloseViewer();
+                    return;
+                }
+                if (key != KeyCode.None && Input.GetKeyDown(key))
+                {
+                    CloseViewer();
+                }
+                else if (Input.GetKeyUp(KeyCode.Escape))
+                {
+                    _escReleased = true;
+                }
+                return;
+            }
+            if (key != KeyCode.None && _capsuleId == 0 && _pendingId == 0 && GameManager.GameState == GameState.Running
+                && Input.GetKeyDown(key) && CanOpenViewer())
+            {
+                ToggleViewer();
+            }
+        }
+
         public static void Tick()
         {
+            if (Plugin.Enabled.Value || _viewer)
+            {
+                TickViewer();
+            }
             if (_pendingId != 0)
             {
                 LanderCapsule pending = Thing.Find<LanderCapsule>(_pendingId);
@@ -258,14 +347,14 @@ namespace LandingFromSpace
             {
                 UiStyle.Fill(row, new Color(UiStyle.Accent.r, UiStyle.Accent.g, UiStyle.Accent.b, 0.18f));
             }
-            else if (row.Contains(Event.current.mousePosition))
+            else if (!_viewer && row.Contains(Event.current.mousePosition))
             {
                 UiStyle.Fill(row, new Color(1f, 1f, 1f, 0.08f));
             }
             icon(new Vector2(x + 8f, y + 11f));
             GUI.Label(new Rect(x + 24f, y, 110f, 22f), $"{site.X:0}, {site.Z:0}", UiStyle.Label(13, UiStyle.Text));
             GUI.Label(new Rect(x + 130f, y, width - 130f, 22f), site.Player, UiStyle.Label(12, UiStyle.Muted, TextAnchor.MiddleRight));
-            if (GUI.Button(row, GUIContent.none, GUIStyle.none))
+            if (!_viewer && GUI.Button(row, GUIContent.none, GUIStyle.none))
             {
                 _selected = site.Point;
             }
@@ -279,15 +368,28 @@ namespace LandingFromSpace
             return y + 24f;
         }
 
+        private static string KeyName()
+        {
+            KeyCode key = Plugin.MapKey.Value;
+            return key == KeyCode.None ? "ESC" : key.ToString().ToUpperInvariant();
+        }
+
+        private static Vector3 PlayerPosition()
+        {
+            Assets.Scripts.Objects.Entities.Human me = Assets.Scripts.Objects.Entities.Human.LocalHuman;
+            return (object)me != null && me != null ? me.Transform.position : Vector3.zero;
+        }
+
         public static void DrawHud()
         {
-            if (_capsuleId == 0 || _capsule == null)
+            bool view = _viewer && _capsuleId == 0;
+            if (!view && (_capsuleId == 0 || _capsule == null))
             {
                 return;
             }
             GUI.depth = -1000;
 
-            if (_sent)
+            if (!view && _sent)
             {
                 string where = _selected.HasValue ? $"  {_selected.Value.x:0}, {_selected.Value.y:0}" : string.Empty;
                 float w = Mathf.Min(460f, Screen.width - 32f);
@@ -312,8 +414,8 @@ namespace LandingFromSpace
             Rect head = new Rect(panel.x, panel.y + 2f, panel.width, header - 2f);
             UiStyle.Fill(head, UiStyle.PanelHeader);
             UiStyle.Fill(new Rect(panel.x, panel.y + header, panel.width, 1f), UiStyle.Line);
-            GUI.Label(new Rect(head.x + pad, head.y, 400f, head.height), "LANDING SITE", UiStyle.Label(22, UiStyle.Text, title: true));
-            GUI.Label(new Rect(head.x, head.y, head.width - pad, head.height), "SELECT A POINT ON THE MAP", UiStyle.Label(12, UiStyle.Accent, TextAnchor.MiddleRight, title: true));
+            GUI.Label(new Rect(head.x + pad, head.y, 400f, head.height), view ? "WORLD MAP" : "LANDING SITE", UiStyle.Label(22, UiStyle.Text, title: true));
+            GUI.Label(new Rect(head.x, head.y, head.width - pad, head.height), view ? $"PRESS {KeyName()} TO CLOSE" : "SELECT A POINT ON THE MAP", UiStyle.Label(12, UiStyle.Accent, TextAnchor.MiddleRight, title: true));
 
             Rect map = new Rect(panel.x + pad, panel.y + header + pad, size, size);
             Rect column = new Rect(map.xMax + pad, map.y, side, size);
@@ -323,7 +425,7 @@ namespace LandingFromSpace
             if (texture == null)
             {
                 UiStyle.Fill(map, new Color(0f, 0f, 0f, 0.4f));
-                GUI.Label(map, "This world has no map image.\nThe capsule will land at the default spot.", UiStyle.Label(15, UiStyle.Muted, TextAnchor.MiddleCenter, wrap: true));
+                GUI.Label(map, view ? "This world has no map image." : "This world has no map image.\nThe capsule will land at the default spot.", UiStyle.Label(15, UiStyle.Muted, TextAnchor.MiddleCenter, wrap: true));
             }
             else
             {
@@ -372,7 +474,8 @@ namespace LandingFromSpace
                     }
                 }
 
-                Vector2 capsulePoint = MarkerPoint(map, _capsule.Transform.position);
+                Vector3 here = view ? PlayerPosition() : _capsule.Transform.position;
+                Vector2 capsulePoint = MarkerPoint(map, here);
                 if (map.Contains(capsulePoint))
                 {
                     UiStyle.Dot(capsulePoint, 20f, new Color(UiStyle.Accent.r, UiStyle.Accent.g, UiStyle.Accent.b, 0.35f));
@@ -381,7 +484,11 @@ namespace LandingFromSpace
 
                 Event e = Event.current;
                 _hover = map.Contains(e.mousePosition) ? MapToWorld(map, e.mousePosition) : (Vector2?)null;
-                if (e.type == EventType.MouseDown && e.button == 0 && _hover.HasValue)
+                if (view)
+                {
+                    // So para olhar: cliques nao fazem nada.
+                }
+                else if (e.type == EventType.MouseDown && e.button == 0 && _hover.HasValue)
                 {
                     _selected = _hover;
                     e.Use();
@@ -399,7 +506,7 @@ namespace LandingFromSpace
                     UiStyle.Fill(new Rect(map.x, m.y, map.width, 1f), new Color(1f, 1f, 1f, 0.18f));
                     UiStyle.Fill(new Rect(m.x, map.y, 1f, map.height), new Color(1f, 1f, 1f, 0.18f));
                 }
-                if (_selected.HasValue)
+                if (!view && _selected.HasValue)
                 {
                     // Mira laranja no alvo.
                     Vector2 t = MarkerPoint(map, new Vector3(_selected.Value.x, 0f, _selected.Value.y));
@@ -427,11 +534,14 @@ namespace LandingFromSpace
                 UiStyle.Fill(chip, UiStyle.Lava);
                 GUI.Label(chip, "LAVA", UiStyle.Label(11, Color.white, TextAnchor.MiddleCenter, title: true));
             }
+            if (!view)
+            {
             y = Section(x, y, w2, "TARGET", _selected.HasValue ? $"{_selected.Value.x:0}, {_selected.Value.y:0}" : "—", _selected.HasValue ? UiStyle.Accent : UiStyle.Muted);
             if (_selected.HasValue && LavaMap.IsMarked(_selected.Value))
             {
                 GUI.Label(new Rect(x, y - 6f, w2, 40f), "Lava here. You will land on the nearest safe ground.", UiStyle.Label(12, UiStyle.Lava, wrap: true));
                 y += 40f;
+            }
             }
 
             LandingFile known = LandingLog.Current;
@@ -466,9 +576,12 @@ namespace LandingFromSpace
             y += 12f;
             GUI.Label(new Rect(x, y, w2, 16f), "LEGEND", UiStyle.Label(11, UiStyle.Muted));
             y += 22f;
-            y = LegendRow(x, y, w2, "Your capsule", c => { UiStyle.Dot(c, 16f, new Color(UiStyle.Accent.r, UiStyle.Accent.g, UiStyle.Accent.b, 0.35f)); UiStyle.Dot(c, 8f, UiStyle.Accent); });
+            y = LegendRow(x, y, w2, view ? "You" : "Your capsule", c => { UiStyle.Dot(c, 16f, new Color(UiStyle.Accent.r, UiStyle.Accent.g, UiStyle.Accent.b, 0.35f)); UiStyle.Dot(c, 8f, UiStyle.Accent); });
             y = LegendRow(x, y, w2, "World start point", c => UiStyle.Dot(c, 8f, UiStyle.Start));
-            y = LegendRow(x, y, w2, "Target", c => UiStyle.Dot(c, 14f, UiStyle.Accent, ring: true));
+            if (!view)
+            {
+                y = LegendRow(x, y, w2, "Target", c => UiStyle.Dot(c, 14f, UiStyle.Accent, ring: true));
+            }
             if (known.Landers.Count > 0)
             {
                 y = LegendRow(x, y, w2, "Lander", c => LanderIcon(c));
@@ -486,6 +599,18 @@ namespace LandingFromSpace
                     ProgressBar(new Rect(x, y + 18f, w2, 3f), LavaMap.Progress, UiStyle.Lava);
                     y += 30f;
                 }
+            }
+
+            if (view)
+            {
+                y += 8f;
+                UiStyle.Fill(new Rect(x, y, w2, 1f), UiStyle.Line);
+                y += 12f;
+                GUI.Label(new Rect(x, y, w2, 16f), "CONTROLS", UiStyle.Label(11, UiStyle.Muted));
+                y += 22f;
+                float vx = x + UiStyle.KeyChip(x, y, KeyName()) + 8f;
+                GUI.Label(new Rect(vx, y, w2, 22f), "Close map", UiStyle.Label(13, UiStyle.Text));
+                return;
             }
 
             bool roomForControls = y + 20f + 22f + 28f * 3f < column.yMax - 106f;

@@ -17,7 +17,15 @@ namespace LandingFromSpace
         [XmlAttribute] public float X;
         [XmlAttribute] public float Z;
         [XmlAttribute] public string Player = "";
+        /// <summary>SteamID do jogador (0 em registros antigos, que valem pelo nome).</summary>
+        [XmlAttribute] public ulong PlayerId;
         [XmlAttribute] public string When = "";
+
+        /// <summary>O ponto e desse jogador: pelo SteamID ou, em registros sem ele, pelo nome.</summary>
+        public bool IsOf(ulong id, string name)
+        {
+            return PlayerId != 0 ? PlayerId == id : string.Equals(Player, name ?? "", StringComparison.OrdinalIgnoreCase);
+        }
 
         public Vector2 Point => new Vector2(X, Z);
     }
@@ -43,9 +51,9 @@ namespace LandingFromSpace
     }
 
     /// <summary>
-    /// Host: os ultimos pontos de pouso (MaxRecent) e onde cada lander caiu (para sempre), por mundo, no arquivo
+    /// Host: os ultimos pontos de pouso (MaxRecent por jogador) e onde cada lander caiu (para sempre), por mundo, no arquivo
     /// saves/&lt;NomeDaEstacao&gt;/LandingFromSpace.xml. Mundo novo ainda nao salvo: fica pendente ate o primeiro save.
-    /// Clientes com o mod recebem uma copia junto com o pedido de escolha do ponto.
+    /// Cada jogador so ve os proprios pontos: clientes com o mod recebem so os seus junto com o pedido de escolha do ponto.
     /// </summary>
     public static class LandingLog
     {
@@ -64,8 +72,44 @@ namespace LandingFromSpace
         /// <summary>Copia recebida do host (clientes).</summary>
         private static LandingFile _remote;
 
-        /// <summary>Dados para a tela do mapa: os do host, ou a copia recebida.</summary>
-        public static LandingFile Current => GameManager.RunSimulation ? _data : (_remote ?? new LandingFile());
+        /// <summary>Dados para a tela do mapa: os do jogador local no host, ou a copia recebida.</summary>
+        public static LandingFile Current
+        {
+            get
+            {
+                if (!GameManager.RunSimulation)
+                {
+                    return _remote ?? new LandingFile();
+                }
+                Assets.Scripts.Objects.Entities.Human local = Assets.Scripts.Objects.Entities.Human.LocalHuman;
+                ulong id = (object)local != null ? local.OwnerClientId : 0;
+                string name = (object)local != null ? local.DisplayName : null;
+                if (_view == null || _viewVersion != _version || _viewId != id || _viewName != name)
+                {
+                    _view = For(id, name);
+                    _viewVersion = _version;
+                    _viewId = id;
+                    _viewName = name;
+                }
+                return _view;
+            }
+        }
+
+        private static LandingFile _view;
+        private static int _version;
+        private static int _viewVersion = -1;
+        private static ulong _viewId;
+        private static string _viewName;
+
+        /// <summary>So os pontos desse jogador.</summary>
+        public static LandingFile For(ulong id, string name)
+        {
+            return new LandingFile
+            {
+                Recent = _data.Recent.FindAll(s => s.IsOf(id, name)),
+                Landers = _data.Landers.FindAll(s => s.IsOf(id, name))
+            };
+        }
 
         // ------------------------------------------------------------------ host
 
@@ -76,6 +120,7 @@ namespace LandingFromSpace
                 if (_loaded || _remote != null)
                 {
                     _data = new LandingFile();
+                    _version++;
                     _loaded = false;
                     _loadedName = null;
                     _dirty = false;
@@ -94,6 +139,7 @@ namespace LandingFromSpace
                 _loaded = true;
                 _loadedName = name;
                 _data = Load(name);
+                _version++;
                 return;
             }
             if (name != _loadedName)
@@ -108,30 +154,31 @@ namespace LandingFromSpace
             }
         }
 
-        public static void RecordLanding(Vector3 point, string player)
+        public static void RecordLanding(Vector3 point, ulong playerId, string player)
         {
             if (!GameManager.RunSimulation)
             {
                 return;
             }
-            _data.Recent.RemoveAll(s => Vector2.Distance(s.Point, new Vector2(point.x, point.z)) < SameSiteDistance);
-            _data.Recent.Insert(0, Site(point, player));
-            if (_data.Recent.Count > MaxRecent)
-            {
-                _data.Recent.RemoveRange(MaxRecent, _data.Recent.Count - MaxRecent);
-            }
+            _data.Recent.RemoveAll(s => s.IsOf(playerId, player) && Vector2.Distance(s.Point, new Vector2(point.x, point.z)) < SameSiteDistance);
+            _data.Recent.Insert(0, Site(point, playerId, player));
+            // Ate MaxRecent por jogador: os mais antigos desse jogador saem.
+            int kept = 0;
+            _data.Recent.RemoveAll(s => s.IsOf(playerId, player) && ++kept > MaxRecent);
             _dirty = true;
+            _version++;
             Plugin.Log.LogInfo($"Landing site recorded: ({point.x:0}, {point.z:0}) by {player}.");
         }
 
-        public static void RecordLander(Vector3 point, string player)
+        public static void RecordLander(Vector3 point, ulong playerId, string player)
         {
             if (!GameManager.RunSimulation)
             {
                 return;
             }
-            _data.Landers.Add(Site(point, player));
+            _data.Landers.Add(Site(point, playerId, player));
             _dirty = true;
+            _version++;
             Plugin.Log.LogInfo($"Lander position recorded: ({point.x:0}, {point.z:0}) for {player}.");
         }
 
@@ -171,10 +218,11 @@ namespace LandingFromSpace
             return (p.Id != 0 && p.Id == id) || (p.Id == 0 && string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
         }
 
-        private static LandingSite Site(Vector3 point, string player)
+        private static LandingSite Site(Vector3 point, ulong playerId, string player)
         {
             return new LandingSite
             {
+                PlayerId = playerId,
                 X = Mathf.Round(point.x * 10f) / 10f,
                 Z = Mathf.Round(point.z * 10f) / 10f,
                 Player = player ?? "",
@@ -270,15 +318,16 @@ namespace LandingFromSpace
 
         private static string Clean(string text) => (text ?? "").Replace(";", " ").Replace(",", " ").Replace("|", " ");
 
-        /// <summary>Host: texto para enviar aos clientes ("r,x,z,nome;l,x,z,nome;...").</summary>
-        public static string Serialize()
+        /// <summary>Host: texto para enviar a um cliente, so com os pontos dele ("r,x,z,nome;l,x,z,nome;...").</summary>
+        public static string Serialize(ulong playerId, string player)
         {
+            LandingFile own = For(playerId, player);
             StringBuilder builder = new StringBuilder();
-            foreach (LandingSite site in _data.Recent)
+            foreach (LandingSite site in own.Recent)
             {
                 builder.Append("r,").Append(site.X.ToString("0.#", CultureInfo.InvariantCulture)).Append(',').Append(site.Z.ToString("0.#", CultureInfo.InvariantCulture)).Append(',').Append(Clean(site.Player)).Append(';');
             }
-            foreach (LandingSite site in _data.Landers)
+            foreach (LandingSite site in own.Landers)
             {
                 builder.Append("l,").Append(site.X.ToString("0.#", CultureInfo.InvariantCulture)).Append(',').Append(site.Z.ToString("0.#", CultureInfo.InvariantCulture)).Append(',').Append(Clean(site.Player)).Append(';');
             }

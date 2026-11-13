@@ -444,6 +444,7 @@ namespace LandingFromSpace
                 main = radii.IndexOf(radii.Max());
             }
             string owner = (object)human != null && human != null ? human.DisplayName : "";
+            ulong ownerId = (object)human != null && human != null ? human.OwnerClientId : 0;
 
             for (int i = 0; i < things.Count; i++)
             {
@@ -471,7 +472,7 @@ namespace LandingFromSpace
                 Net.SendToModdedClients($"K|{thing.ReferenceId}|{delay.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)}|{fallSeconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)}");
                 if (i == main)
                 {
-                    LandingLog.RecordLander(safe + pivots[i], owner);
+                    LandingLog.RecordLander(safe + pivots[i], ownerId, owner);
                 }
             }
             Plugin.Log.LogInfo($"Player left the capsule: starting kit falling around ({center.x:0}, {center.z:0}), {FlatDistance(center, landing):0} m from the capsule at ({landing.x:0}, {landing.z:0}): {things.Count} thing(s), layout radius {layoutRadius:0} m.");

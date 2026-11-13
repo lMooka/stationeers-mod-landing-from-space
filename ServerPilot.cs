@@ -212,7 +212,7 @@ namespace LandingFromSpace
             else
             {
                 // Os pousos recentes e os landers vao antes, para o mapa do cliente ja abrir com eles.
-                Net.SendToClient(client, $"M|{LandingLog.Serialize()}");
+                Net.SendToClient(client, $"M|{LandingLog.Serialize(human.OwnerClientId, human.DisplayName)}");
                 Net.SendToClient(client, $"P|{session.CapsuleId}");
             }
         }
@@ -443,7 +443,7 @@ namespace LandingFromSpace
             LastDropPoint = ground;
             if (session.Phase == Phase.Steering && session.Human != null && session.Human.ParentSlot?.Parent == capsule)
             {
-                LandingLog.RecordLanding(ground, session.Human.DisplayName);
+                LandingLog.RecordLanding(ground, session.Human.OwnerClientId, session.Human.DisplayName);
             }
             Plugin.Log.LogInfo($"Capsule {session.CapsuleId} descends at ({ground.x:0}, {ground.z:0}) [{reason}].");
             Resume(capsule, ground);

@@ -556,9 +556,22 @@ namespace LandingFromSpace
                     yield return null;
                 }
                 Vector3 c0 = capsule.Transform.position;
-                LandingLog.RecordLanding(new Vector3(c0.x - 600f, 0f, c0.z + 300f), "Earlier");
-                LandingLog.RecordLanding(new Vector3(c0.x + 200f, 0f, c0.z - 500f), "Earlier");
-                LandingLog.RecordLander(new Vector3(c0.x - 590f, 0f, c0.z + 310f), "Earlier");
+                Human self = Human.LocalHuman;
+                ulong selfId = self != null ? self.OwnerClientId : 0;
+                string selfName = self != null ? self.DisplayName : "";
+                LandingLog.RecordLanding(new Vector3(c0.x - 600f, 0f, c0.z + 300f), selfId, selfName);
+                LandingLog.RecordLanding(new Vector3(c0.x + 200f, 0f, c0.z - 500f), selfId, selfName);
+                LandingLog.RecordLander(new Vector3(c0.x - 590f, 0f, c0.z + 310f), selfId, selfName);
+                // Pontos de outro jogador: nao aparecem no mapa deste nem vao para ele pela rede.
+                const ulong otherId = 76561190000000001UL;
+                LandingLog.RecordLanding(new Vector3(c0.x + 500f, 0f, c0.z + 500f), otherId, "Outro");
+                LandingLog.RecordLander(new Vector3(c0.x + 510f, 0f, c0.z + 510f), otherId, "Outro");
+                string sent = LandingLog.Serialize(selfId, selfName);
+                Check("cada jogador ve so os proprios pousos e landers",
+                    LandingLog.Current.Recent.Count == 2 && LandingLog.Current.Landers.Count == 1
+                    && LandingLog.Current.Recent.All(s => s.IsOf(selfId, selfName)) && !sent.Contains("Outro")
+                    && LandingLog.For(otherId, "Outro").Recent.Count == 1 && LandingLog.Serialize(otherId, "Outro").Contains("Outro"),
+                    $"meus={LandingLog.Current.Recent.Count}/{LandingLog.Current.Landers.Count} enviado=[{sent}]");
                 MapPicker.TestSelect(new Vector2(c0.x + 350f, c0.z + 250f));
                 yield return new WaitForEndOfFrame();
                 Shot("0_mapa_lava");
@@ -773,7 +786,26 @@ namespace LandingFromSpace
             }
 
             yield return InspectLanderTop();
+            yield return TestMapViewer();
             yield return TestRespawnCommand();
+        }
+
+        /// <summary>Tecla M fora da capsula: mapa so para olhar, sem escolher alvo.</summary>
+        private static IEnumerator TestMapViewer()
+        {
+            MapPicker.ToggleViewer();
+            yield return null;
+            yield return new WaitForEndOfFrame();
+            Shot("10_mapa_visualizacao");
+            int sessions = ServerPilot.Sessions.Count;
+            MapPicker.TestSelect(new Vector2(0f, 0f));
+            MapPicker.Choose(new Vector2(0f, 0f));
+            yield return null;
+            Check("tecla do mapa abre o mapa so para olhar, sem escolher pouso", MapPicker.IsViewing && !MapPicker.IsOpen && ServerPilot.Sessions.Count == sessions && !SteerPilot.Active,
+                $"vendo={MapPicker.IsViewing} escolhendo={MapPicker.IsOpen} sessoes={ServerPilot.Sessions.Count}");
+            MapPicker.ToggleViewer();
+            yield return null;
+            Check("tecla do mapa fecha o mapa e devolve o controle", !MapPicker.IsViewing && KeyManager.InputState == KeyInputState.Game, $"estado={KeyManager.InputState}");
         }
     }
 }
